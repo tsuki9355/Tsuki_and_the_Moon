@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
@@ -11,6 +11,7 @@ class UInputMappingContext;
 class UInputAction;
 class UScissorsComponent;
 class UGrabComponent;
+class UHookComponent;
 class UPropertyHolderComponent;
 class AFairyHintVolume;
 class AToolPickup;
@@ -41,6 +42,9 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Tsuki")
 	TObjectPtr<UGrabComponent> Grab;
 
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Tsuki")
+	TObjectPtr<UHookComponent> Hook;
+
 	/** Tsuki's own weight on pressure plates. Not a scissors target. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Tsuki")
 	TObjectPtr<UPropertyHolderComponent> Weight;
@@ -54,6 +58,29 @@ public:
 	/** Seconds to swing the camera behind Tsuki when recentering. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tsuki|Feel", meta = (ClampMin = "0.05"))
 	float RecenterTime = 0.25f;
+
+	// --- Swimming (surface only) ---
+
+	/** Water deeper than this at Tsuki's feet makes her swim instead of wade (cm). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tsuki|Swim", meta = (ClampMin = "10.0"))
+	float SwimStartDepth = 120.f;
+
+	/** How far below the surface her capsule center floats while swimming (head stays above water). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tsuki|Swim", meta = (ClampMin = "0.0"))
+	float SwimFloatDepth = 45.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tsuki|Swim", meta = (ClampMin = "10.0"))
+	float SwimSpeed = 300.f;
+
+	/** Highest edge above the surface she can pull herself onto from the water (cm). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tsuki|Swim", meta = (ClampMin = "0.0"))
+	float ClimbOutHeight = 45.f;
+
+	/** Called every tick by a pond Tsuki is in. */
+	void UpdateWater(float SurfaceZ);
+
+	UFUNCTION(BlueprintPure, Category = "Tsuki|Swim")
+	bool IsSwimming() const { return bSwimming; }
 
 	/** Seconds input is locked during the tool pickup (item-get) moment. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tsuki|Feel", meta = (ClampMin = "0.0"))
@@ -87,6 +114,9 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input")
 	TObjectPtr<UInputAction> RecenterAction;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input")
+	TObjectPtr<UInputAction> HookAction;
 
 	/** Return to the last checkpoint (or the start) after a fall. */
 	UFUNCTION(BlueprintCallable, Category = "Tsuki")
@@ -129,10 +159,21 @@ private:
 	void ReturnProperty();
 	void RequestHint();
 	void Recenter();
+	void FireHook();
+	bool IsActionLocked() const;
 	void EndItemGet();
 
 	UFUNCTION()
 	void HandleToolGranted(ETsukiTool Tool);
+
+	void StartSwimming();
+	void StopSwimming();
+	void TickSwimming(float DeltaSeconds);
+	bool TryClimbOut();
+
+	float WaterSurfaceZ = 0.f;
+	float LastWaterTime = -100.f;
+	bool bSwimming = false;
 
 	mutable TArray<AActor*> PickupOverlapCache;
 	TWeakObjectPtr<AFairyHintVolume> ActiveHintVolume;

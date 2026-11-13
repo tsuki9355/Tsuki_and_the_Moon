@@ -19,7 +19,7 @@ The game's connection to the **“Director’s Cut”** theme is its central mec
 
 ## 2. Player experience and controls
 
-- **Camera and movement:** Player-controlled third-person camera with light framing assistance around important puzzle objects and traversal targets. Tsuki can walk, run, jump, and interact. Movement is responsive and grounded, with forgiving platforming.
+- **Camera and movement:** Player-controlled third-person camera with light framing assistance around important puzzle objects and traversal targets. Tsuki can walk, run, jump, interact, and swim. Movement is responsive and grounded, with forgiving platforming. She wades through shallow water and swims at the surface of deep water (no diving); from the water she can only climb out onto edges close to the waterline, so higher ledges must be reached another way. Small objects such as the pebble can be lifted and carried; large blocks are pushed and pulled.
 - **Scissors targeting:** The player aims at an object. Valid targets receive a clear contextual highlight. Cuttable sources and compatible receivers use different visual identifiers.
 - **Minimal HUD:** Show the currently carried property, relevant contextual prompts, and Moon Fragment count. Keep the world unobstructed.
 - **Checkpoints:** Place checkpoints near significant puzzle or traversal sequences. Falling returns Tsuki nearby; preserve solved puzzle states where practical.
@@ -148,9 +148,9 @@ Once the pond is lowered and the Hook is obtained, visually frame the exit platf
 
 ### Puzzle beats
 
-1. **Raise the bridge:** Cut Buoyancy from the water bubble and attach it to the submerged wooden platform. The platform rises to the surface and settles into a stable bridge across the water.
+1. **Raise the bridge:** Cut Buoyancy from the water bubble floating on the pond and attach it to the submerged wooden platform. The platform rises to the surface and settles into a stable bridge across the water. Tsuki can swim in the pond, but the far side is too high to climb from the water; from the risen bridge she can jump onto it.
 2. **Float the crate:** Cut Buoyancy from another water bubble, then move the crate into the water and attach Buoyancy. Buoyancy causes it to rise and float at the surface to a high ledge across; the player remains able to push or pull it horizontally.
-3. **Lower the pond and reveal the Hook:** The crate is too light to activate the pressure plate. Cut Heaviness from the nearby boulder and attach it to the crate. Move the crate onto the plate. The plate depresses; a short camera reveal and musical cue accompany the pond lowering and the chest becoming accessible.
+3. **Lower the pond and reveal the Hook:** The crate is too light to activate the pressure plate. Cut Heaviness from the nearby boulder and attach it to the crate. Move the crate onto the plate. The plate depresses; a short camera reveal and musical cue accompany the pond lowering and the chest becoming accessible. Only the separate basin holding the chest drains; the main pond stays full.
 4. **Leave with the Hook:** Open the chest and acquire the Moonthread Hook. Aim at the marked exit target and hook across to the next area.
 5. **Return opportunity:** The Hook enables a return trip to the high platform in Forest Entrance for its optional Moon Fragment chest.
 

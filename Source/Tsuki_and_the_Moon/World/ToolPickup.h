@@ -28,8 +28,20 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Pickup")
 	TObjectPtr<UStaticMeshComponent> Mesh;
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Pickup")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Pickup", meta = (EditCondition = "!bIsMoonFragment"))
 	ETsukiTool Tool = ETsukiTool::Scissors;
+
+	/** Gives a Moon Fragment instead of a tool (optional chests, GDD §7). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Pickup")
+	bool bIsMoonFragment = false;
+
+	/** Unique id remembered in progress so a collected fragment stays collected. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Pickup", meta = (EditCondition = "bIsMoonFragment"))
+	FName CollectId;
+
+	/** Bob and spin while waiting (off for chests). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Pickup")
+	bool bAnimateIdle = true;
 
 	/** Prompt verb shown in the HUD. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Pickup")
@@ -64,7 +76,11 @@ public:
 protected:
 	virtual void BeginPlay() override;
 
-private:
+	/** Visual change once collected. Pickups vanish; chests open their lid. */
+	virtual void ShowCollected(bool bInstant);
+
+	bool IsAlreadyCollected() const;
+
 	FVector MeshRest = FVector::ZeroVector;
 	bool bCollected = false;
 };

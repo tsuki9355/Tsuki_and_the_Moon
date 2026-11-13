@@ -1,6 +1,7 @@
-﻿#include "Player/TsukiCharacter.h"
+#include "Player/TsukiCharacter.h"
 #include "Player/ScissorsComponent.h"
 #include "Player/GrabComponent.h"
+#include "Player/HookComponent.h"
 #include "Properties/PropertyHolderComponent.h"
 #include "Core/TsukiProgressSubsystem.h"
 #include "World/FairyHintVolume.h"
@@ -60,6 +61,7 @@ ATsukiCharacter::ATsukiCharacter()
 
 	Scissors = CreateDefaultSubobject<UScissorsComponent>(TEXT("Scissors"));
 	Grab = CreateDefaultSubobject<UGrabComponent>(TEXT("Grab"));
+	Hook = CreateDefaultSubobject<UHookComponent>(TEXT("Hook"));
 
 	Weight = CreateDefaultSubobject<UPropertyHolderComponent>(TEXT("Weight"));
 	Weight->BaseWeight = 60.f;
@@ -75,6 +77,7 @@ void ATsukiCharacter::BeginPlay()
 	if (UTsukiProgressSubsystem* Progress = UTsukiProgressSubsystem::Get(this))
 	{
 		Scissors->SetScissorsEnabled(Progress->HasTool(ETsukiTool::Scissors));
+		Hook->SetHookEnabled(Progress->HasTool(ETsukiTool::MoonthreadHook));
 		Progress->OnToolGranted.AddDynamic(this, &ATsukiCharacter::HandleToolGranted);
 	}
 }
@@ -84,6 +87,10 @@ void ATsukiCharacter::HandleToolGranted(ETsukiTool Tool)
 	if (Tool == ETsukiTool::Scissors)
 	{
 		Scissors->SetScissorsEnabled(true);
+	}
+	else if (Tool == ETsukiTool::MoonthreadHook)
+	{
+		Hook->SetHookEnabled(true);
 	}
 }
 
@@ -95,6 +102,11 @@ void ATsukiCharacter::Tick(float DeltaSeconds)
 	{
 		LastGroundedTime = GetWorld()->GetTimeSeconds();
 		bCoyoteAvailable = true;
+	}
+
+	if (bSwimming)
+	{
+		TickSwimming(DeltaSeconds);
 	}
 
 	if (bRecentering && Controller)
@@ -114,7 +126,7 @@ void ATsukiCharacter::Tick(float DeltaSeconds)
 
 bool ATsukiCharacter::CanJumpInternal_Implementation() const
 {
-	if (Grab && Grab->IsGrabbing())
+	if ((Grab && Grab->IsGrabbing()) || bSwimming)
 	{
 		return false;
 	}
@@ -136,12 +148,125 @@ void ATsukiCharacter::OnJumped_Implementation()
 
 void ATsukiCharacter::FellOutOfWorld(const UDamageType& DamageType)
 {
-	Respawn(); // Never destroy Tsuki; return her nearby instead (GDD Â§2).
+	Respawn(); // Never destroy Tsuki; return her nearby instead (GDD section 2).
+}
+
+// --- Swimming ---
+
+void ATsukiCharacter::UpdateWater(float SurfaceZ)
+{
+	WaterSurfaceZ = SurfaceZ;
+	LastWaterTime = GetWorld()->GetTimeSeconds();
+	if (bSwimming || Hook->IsBusy())
+	{
+		return;
+	}
+	const float FeetZ = GetActorLocation().Z - GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+	if (SurfaceZ - FeetZ > SwimStartDepth)
+	{
+		StartSwimming();
+	}
+}
+
+void ATsukiCharacter::StartSwimming()
+{
+	bSwimming = true;
+	Grab->Release();
+	UCharacterMovementComponent* Move = GetCharacterMovement();
+	Move->SetMovementMode(MOVE_Flying);
+	Move->MaxFlySpeed = SwimSpeed;
+	Move->BrakingDecelerationFlying = 900.f;
+	Move->Velocity.Z = 0.f;
+}
+
+void ATsukiCharacter::StopSwimming()
+{
+	if (!bSwimming)
+	{
+		return;
+	}
+	bSwimming = false;
+	if (!Hook->IsBusy())
+	{
+		GetCharacterMovement()->SetMovementMode(MOVE_Falling);
+	}
+}
+
+void ATsukiCharacter::TickSwimming(float DeltaSeconds)
+{
+	if (Hook->IsBusy())
+	{
+		bSwimming = false; // The hook takes over movement; swimming resumes if she lands in water.
+		return;
+	}
+	UCharacterMovementComponent* Move = GetCharacterMovement();
+	const float HalfHeight = GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+	const FVector Loc = GetActorLocation();
+
+	// Left the pond, or the water drained/shallowed under her: back to walking.
+	FHitResult Floor;
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(SwimFloor), false, this);
+	const bool bShallow = GetWorld()->LineTraceSingleByChannel(Floor, Loc, Loc - FVector(0.f, 0.f, HalfHeight + 60.f), ECC_Visibility, Params)
+		&& (WaterSurfaceZ - Floor.ImpactPoint.Z) < SwimStartDepth - 20.f; // Hysteresis vs. SwimStartDepth.
+	if (GetWorld()->GetTimeSeconds() - LastWaterTime > 0.15f || bShallow)
+	{
+		StopSwimming();
+		return;
+	}
+
+	// Bob at the surface with the head above water.
+	// Positional, not velocity-driven: flying braking would eat a small vertical velocity at low frame rates.
+	const float TargetZ = WaterSurfaceZ - SwimFloatDepth;
+	Move->Velocity.Z = 0.f;
+	const float NewZ = FMath::FInterpTo(Loc.Z, TargetZ, DeltaSeconds, 6.f);
+	AddActorWorldOffset(FVector(0.f, 0.f, NewZ - Loc.Z), true);
+
+	if (!Move->GetCurrentAcceleration().IsNearlyZero())
+	{
+		TryClimbOut();
+	}
+}
+
+bool ATsukiCharacter::TryClimbOut()
+{
+	const float HalfHeight = GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+	const float Radius = GetCapsuleComponent()->GetScaledCapsuleRadius();
+	const FVector Loc = GetActorLocation();
+	const FVector Fwd = GetActorForwardVector();
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(ClimbOut), false, this);
+
+	// Something in front at chest height?
+	FHitResult Wall;
+	if (!GetWorld()->LineTraceSingleByChannel(Wall, Loc, Loc + Fwd * (Radius + 40.f), ECC_Visibility, Params))
+	{
+		return false;
+	}
+	// Find its top, no higher than ClimbOutHeight above the water.
+	const FVector Over = Wall.ImpactPoint + Fwd * (Radius + 10.f);
+	FHitResult Top;
+	if (!GetWorld()->LineTraceSingleByChannel(Top, FVector(Over.X, Over.Y, WaterSurfaceZ + ClimbOutHeight + 5.f), FVector(Over.X, Over.Y, WaterSurfaceZ - 60.f), ECC_Visibility, Params))
+	{
+		return false;
+	}
+	if (Top.bStartPenetrating || Top.ImpactNormal.Z < 0.7f || Top.ImpactPoint.Z > WaterSurfaceZ + ClimbOutHeight)
+	{
+		return false;
+	}
+	const FVector Dest(Over.X, Over.Y, Top.ImpactPoint.Z + HalfHeight + 2.f);
+	if (!SetActorLocation(Dest, false, nullptr, ETeleportType::TeleportPhysics))
+	{
+		return false;
+	}
+	bSwimming = false;
+	GetCharacterMovement()->SetMovementMode(MOVE_Walking);
+	return true;
 }
 
 void ATsukiCharacter::Respawn()
 {
 	Grab->Release();
+	Hook->Cancel();
+	StopSwimming();
 	FTransform Target = StartTransform;
 	if (const UTsukiProgressSubsystem* Progress = UTsukiProgressSubsystem::Get(this))
 	{
@@ -226,6 +351,7 @@ void ATsukiCharacter::BuildDefaultInput()
 	if (!ReturnAction) { ReturnAction = MakeAction(TEXT("IA_Tsuki_Return"), EInputActionValueType::Boolean); }
 	if (!HintAction) { HintAction = MakeAction(TEXT("IA_Tsuki_Hint"), EInputActionValueType::Boolean); }
 	if (!RecenterAction) { RecenterAction = MakeAction(TEXT("IA_Tsuki_Recenter"), EInputActionValueType::Boolean); }
+	if (!HookAction) { HookAction = MakeAction(TEXT("IA_Tsuki_Hook"), EInputActionValueType::Boolean); }
 
 	UInputMappingContext* Ctx = NewObject<UInputMappingContext>(this, TEXT("IMC_Tsuki_Default"));
 
@@ -256,6 +382,8 @@ void ATsukiCharacter::BuildDefaultInput()
 	Ctx->MapKey(HintAction, EKeys::Gamepad_DPad_Up);
 	Ctx->MapKey(RecenterAction, EKeys::MiddleMouseButton);
 	Ctx->MapKey(RecenterAction, EKeys::Gamepad_LeftTrigger);
+	Ctx->MapKey(HookAction, EKeys::RightMouseButton);
+	Ctx->MapKey(HookAction, EKeys::Gamepad_RightShoulder);
 
 	MappingContext = Ctx;
 }
@@ -297,11 +425,12 @@ void ATsukiCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComp
 	Input->BindAction(ReturnAction, ETriggerEvent::Started, this, &ATsukiCharacter::ReturnProperty);
 	Input->BindAction(HintAction, ETriggerEvent::Started, this, &ATsukiCharacter::RequestHint);
 	Input->BindAction(RecenterAction, ETriggerEvent::Started, this, &ATsukiCharacter::Recenter);
+	Input->BindAction(HookAction, ETriggerEvent::Started, this, &ATsukiCharacter::FireHook);
 }
 
 void ATsukiCharacter::Move(const FInputActionValue& Value)
 {
-	if (bInputLocked || !Controller)
+	if (IsActionLocked() || !Controller)
 	{
 		return;
 	}
@@ -339,7 +468,7 @@ void ATsukiCharacter::Look(const FInputActionValue& Value)
 
 void ATsukiCharacter::StartJump()
 {
-	if (!bInputLocked)
+	if (!IsActionLocked())
 	{
 		Jump();
 	}
@@ -352,7 +481,7 @@ void ATsukiCharacter::StopJump()
 
 void ATsukiCharacter::UseScissors()
 {
-	if (!bInputLocked && !Grab->IsGrabbing() && !Grab->IsCarrying())
+	if (!IsActionLocked() && !Grab->IsGrabbing() && !Grab->IsCarrying())
 	{
 		Scissors->UseScissors();
 	}
@@ -396,4 +525,17 @@ void ATsukiCharacter::RequestHint()
 void ATsukiCharacter::Recenter()
 {
 	bRecentering = true;
+}
+
+bool ATsukiCharacter::IsActionLocked() const
+{
+	return bInputLocked || (Hook && Hook->IsBusy());
+}
+
+void ATsukiCharacter::FireHook()
+{
+	if (!IsActionLocked() && !Grab->IsGrabbing() && !Grab->IsCarrying())
+	{
+		Hook->Fire();
+	}
 }

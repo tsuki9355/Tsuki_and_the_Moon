@@ -2,6 +2,7 @@
 #include "Player/TsukiCharacter.h"
 #include "Player/ScissorsComponent.h"
 #include "Player/GrabComponent.h"
+#include "Player/HookComponent.h"
 #include "Properties/PropertyHolderComponent.h"
 #include "Properties/TsukiPropertySettings.h"
 #include "Core/TsukiProgressSubsystem.h"
@@ -126,6 +127,26 @@ void ATsukiHUD::DrawHUD()
 	if (bHasScissors && Scissors->GetCarried() != EMoonProperty::None)
 	{
 		ScissorsPrompt += (ScissorsPrompt.IsEmpty() ? TEXT("") : TEXT("     ")) + NSLOCTEXT("TsukiHUD", "Return", "[R] Return property").ToString();
+	}
+
+	// Moonthread Hook: gold lock-on marker and prompt when a target is in the aim cone.
+	if (Tsuki->Hook && Tsuki->Hook->IsHookEnabled() && !bBusyHands)
+	{
+		if (Tsuki->Hook->GetAimedTarget())
+		{
+			const float R = 12.f * S;
+			const float CX = Canvas->ClipX * 0.5f, CY = Canvas->ClipY * 0.5f;
+			const FLinearColor Gold(1.f, 0.85f, 0.35f, 0.9f);
+			DrawPanel(CX - R, CY - R - 2.f * S, R * 2.f, 3.f * S, Gold);
+			DrawPanel(CX - R, CY + R - 1.f * S, R * 2.f, 3.f * S, Gold);
+			DrawPanel(CX - R - 2.f * S, CY - R, 3.f * S, R * 2.f, Gold);
+			DrawPanel(CX + R - 1.f * S, CY - R, 3.f * S, R * 2.f, Gold);
+			ScissorsPrompt += (ScissorsPrompt.IsEmpty() ? TEXT("") : TEXT("     ")) + NSLOCTEXT("TsukiHUD", "Hook", "[RMB] Hook").ToString();
+		}
+		else if (!bHasScissors)
+		{
+			DrawPanel(Canvas->ClipX * 0.5f - 4.f * S, Canvas->ClipY * 0.5f - 4.f * S, 8.f * S, 8.f * S, FLinearColor(1.f, 1.f, 1.f, 0.35f));
+		}
 	}
 
 	const float LineH = 42.f * S;

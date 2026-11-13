@@ -51,6 +51,17 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Property")
 	bool bCarryable = false;
 
+	/** Floats in water without Buoyancy (the lily pad). Heaviness still sinks it. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Property")
+	bool bFloatsNaturally = false;
+
+	/** Whether this object rides the water surface right now (Buoyancy or natural float, and not Heaviness). */
+	UFUNCTION(BlueprintPure, Category = "Property")
+	bool FloatsInWater() const
+	{
+		return (bFloatsNaturally || HasProperty(EMoonProperty::Buoyancy)) && !HasProperty(EMoonProperty::Heaviness);
+	}
+
 	/** Whether to apply the source/receiver glow overlay to the owner's meshes. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Property")
 	bool bShowGlow = true;

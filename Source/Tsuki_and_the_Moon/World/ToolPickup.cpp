@@ -22,29 +22,42 @@ AToolPickup::AToolPickup()
 	Mesh->SetMobility(EComponentMobility::Movable);
 }
 
+bool AToolPickup::IsAlreadyCollected() const
+{
+	const UTsukiProgressSubsystem* Progress = UTsukiProgressSubsystem::Get(this);
+	if (!Progress)
+	{
+		return false;
+	}
+	return bIsMoonFragment ? Progress->IsSolved(CollectId) : Progress->HasTool(Tool);
+}
+
 void AToolPickup::BeginPlay()
 {
 	Super::BeginPlay();
 	MeshRest = Mesh->GetRelativeLocation();
-	if (const UTsukiProgressSubsystem* Progress = UTsukiProgressSubsystem::Get(this))
+	if (IsAlreadyCollected())
 	{
-		if (Progress->HasTool(Tool))
-		{
-			bCollected = true;
-			Mesh->SetVisibility(false, true);
-		}
+		bCollected = true;
+		ShowCollected(true);
 	}
+	SetActorTickEnabled(bAnimateIdle && !bCollected);
 }
 
 void AToolPickup::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
-	if (!bCollected)
+	if (!bCollected && bAnimateIdle)
 	{
 		const float T = GetWorld()->GetTimeSeconds();
 		Mesh->SetRelativeLocation(MeshRest + FVector(0.f, 0.f, FMath::Sin(T * 2.f) * BobHeight));
 		Mesh->AddLocalRotation(FRotator(0.f, 45.f * DeltaSeconds, 0.f));
 	}
+}
+
+void AToolPickup::ShowCollected(bool bInstant)
+{
+	Mesh->SetVisibility(false, true);
 }
 
 void AToolPickup::Collect(ATsukiCharacter* Collector)
@@ -54,12 +67,19 @@ void AToolPickup::Collect(ATsukiCharacter* Collector)
 		return;
 	}
 	bCollected = true;
-	Mesh->SetVisibility(false, true);
-	SetActorTickEnabled(false);
+	ShowCollected(false);
 
 	if (UTsukiProgressSubsystem* Progress = UTsukiProgressSubsystem::Get(this))
 	{
-		Progress->GrantTool(Tool);
+		if (bIsMoonFragment)
+		{
+			Progress->AddMoonFragment();
+			Progress->MarkSolved(CollectId);
+		}
+		else
+		{
+			Progress->GrantTool(Tool);
+		}
 	}
 	if (PickupSound)
 	{
