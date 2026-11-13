@@ -1,0 +1,25 @@
+{
+    "configurations": [
+        {
+            "name": "Tsuki_and_the_MoonEditor Editor Win64 Development (Tsuki_and_the_Moon)",
+            "compilerPath": "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\Hostx64\\x64\\cl.exe",
+            "cStandard": "c17",
+            "cppStandard": "c++20",
+            "intelliSenseMode": "msvc-x64",
+            "compileCommands": [
+                "C:\\Users\\Angus Chou\\Documents\\Unreal Projects\\Tsuki_and_the_Moon\\.vscode\\compileCommands_Tsuki_and_the_Moon.json"
+            ]
+        },
+        {
+            "name": "Win32",
+            "compilerPath": "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\Hostx64\\x64\\cl.exe",
+            "cStandard": "c17",
+            "cppStandard": "c++20",
+            "intelliSenseMode": "msvc-x64",
+            "compileCommands": [
+                "C:\\Users\\Angus Chou\\Documents\\Unreal Projects\\Tsuki_and_the_Moon\\.vscode\\compileCommands_Default.json"
+            ]
+        }
+    ],
+    "version": 4
+}

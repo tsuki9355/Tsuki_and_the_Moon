@@ -1,0 +1,10 @@
+[
+	{
+		"file": "C:\\Users\\Angus Chou\\Documents\\Unreal Projects\\Tsuki_and_the_Moon\\Source\\Tsuki_and_the_Moon\\Tsuki_and_the_Moon.cpp",
+		"arguments": [
+			"C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\Hostx64\\x64\\cl.exe",
+			"@C:\\Users\\Angus Chou\\Documents\\Unreal Projects\\Tsuki_and_the_Moon\\.vscode\\compileCommands_Default\\Tsuki_and_the_Moon.0.rsp"
+		],
+		"directory": "C:\\Program Files\\Epic Games\\UE_5.8\\Engine\\Source"
+	}
+]
