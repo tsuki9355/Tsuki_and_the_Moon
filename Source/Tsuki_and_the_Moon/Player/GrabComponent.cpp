@@ -1,0 +1,328 @@
+#include "Player/GrabComponent.h"
+#include "Properties/PropertyHolderComponent.h"
+#include "GameFramework/Character.h"
+#include "GameFramework/CharacterMovementComponent.h"
+#include "Components/CapsuleComponent.h"
+#include "Engine/World.h"
+
+UGrabComponent::UGrabComponent()
+{
+	PrimaryComponentTick.bCanEverTick = true;
+	PrimaryComponentTick.TickGroup = TG_PostPhysics; // After the character has moved this frame.
+}
+
+ACharacter* UGrabComponent::GetCharacter() const
+{
+	return Cast<ACharacter>(GetOwner());
+}
+
+UPropertyHolderComponent* UGrabComponent::FindGrabbable(FVector& OutNormal) const
+{
+	const ACharacter* Character = GetCharacter();
+	if (!Character)
+	{
+		return nullptr;
+	}
+	const UCapsuleComponent* Capsule = Character->GetCapsuleComponent();
+	const FVector Forward = Character->GetActorForwardVector() * (Capsule->GetScaledCapsuleRadius() + GrabReach);
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(GrabTrace), false, Character);
+	if (const UPropertyHolderComponent* Held = Carried.Get())
+	{
+		Params.AddIgnoredActor(Held->GetOwner());
+	}
+
+	// Chest height for blocks, then knee height so small objects like the pebble can be found.
+	const float Heights[] = { 0.f, -(Capsule->GetScaledCapsuleHalfHeight() - 25.f) };
+	for (const float Z : Heights)
+	{
+		const FVector Start = Character->GetActorLocation() + FVector(0.f, 0.f, Z);
+		FHitResult Hit;
+		if (!GetWorld()->SweepSingleByChannel(Hit, Start, Start + Forward, FQuat::Identity, ECC_Visibility, FCollisionShape::MakeSphere(20.f), Params))
+		{
+			continue;
+		}
+		UPropertyHolderComponent* Holder = Hit.GetActor() ? Hit.GetActor()->FindComponentByClass<UPropertyHolderComponent>() : nullptr;
+		if (Holder && (Holder->bPushable || Holder->bCarryable))
+		{
+			OutNormal = Hit.ImpactNormal;
+			return Holder;
+		}
+	}
+	return nullptr;
+}
+
+EGrabPrompt UGrabComponent::GetPrompt() const
+{
+	if (IsCarrying())
+	{
+		return EGrabPrompt::PutDown;
+	}
+	if (IsGrabbing())
+	{
+		return EGrabPrompt::Pushing;
+	}
+	FVector Normal;
+	const UPropertyHolderComponent* Holder = FindGrabbable(Normal);
+	if (!Holder)
+	{
+		return EGrabPrompt::None;
+	}
+	const float Weight = Holder->GetEffectiveWeight();
+	if (Holder->bCarryable)
+	{
+		return Weight <= MaxCarryWeight ? EGrabPrompt::PickUp : EGrabPrompt::TooHeavy;
+	}
+	return Weight <= MaxGrabWeight ? EGrabPrompt::Grab : EGrabPrompt::TooHeavy;
+}
+
+bool UGrabComponent::TryGrab()
+{
+	ACharacter* Character = GetCharacter();
+	if (!Character)
+	{
+		return false;
+	}
+	if (IsCarrying())
+	{
+		return PutDown();
+	}
+	if (IsGrabbing() || !Character->GetCharacterMovement()->IsMovingOnGround())
+	{
+		return false;
+	}
+	FVector Normal;
+	UPropertyHolderComponent* Holder = FindGrabbable(Normal);
+	if (!Holder)
+	{
+		return false;
+	}
+	return Holder->bCarryable ? StartCarry(Holder) : StartPush(Holder, Normal);
+}
+
+bool UGrabComponent::StartPush(UPropertyHolderComponent* Holder, const FVector& Normal)
+{
+	ACharacter* Character = GetCharacter();
+	if (Holder->GetEffectiveWeight() > MaxGrabWeight)
+	{
+		OnGrabRefused.Broadcast(Holder);
+		return false;
+	}
+
+	// Face the grabbed face squarely and lock movement to that axis.
+	FVector Axis = -Normal;
+	Axis.Z = 0.f;
+	if (!Axis.Normalize())
+	{
+		Axis = Character->GetActorForwardVector();
+	}
+	GrabAxis = Axis;
+	Character->SetActorRotation(GrabAxis.Rotation());
+
+	UCharacterMovementComponent* Move = Character->GetCharacterMovement();
+	SavedMaxWalkSpeed = Move->MaxWalkSpeed;
+	bSavedOrientToMovement = Move->bOrientRotationToMovement;
+	Move->MaxWalkSpeed = PushSpeed;
+	Move->bOrientRotationToMovement = false;
+
+	// Let Tsuki and the object pass through each other; the object is moved by sweep in Tick.
+	AActor* Object = Holder->GetOwner();
+	Character->GetCapsuleComponent()->IgnoreActorWhenMoving(Object, true);
+	if (UPrimitiveComponent* Root = Cast<UPrimitiveComponent>(Object->GetRootComponent()))
+	{
+		Root->IgnoreActorWhenMoving(Character, true);
+	}
+
+	Grabbed = Holder;
+	LastOwnerLocation = Character->GetActorLocation();
+	OnGrabStarted.Broadcast(Holder);
+	return true;
+}
+
+bool UGrabComponent::StartCarry(UPropertyHolderComponent* Holder)
+{
+	ACharacter* Character = GetCharacter();
+	if (Holder->GetEffectiveWeight() > MaxCarryWeight)
+	{
+		OnGrabRefused.Broadcast(Holder);
+		return false;
+	}
+	AActor* Object = Holder->GetOwner();
+	UPrimitiveComponent* Root = Cast<UPrimitiveComponent>(Object->GetRootComponent());
+	if (!Root)
+	{
+		return false;
+	}
+
+	CarriedSavedCollision = Root->GetCollisionEnabled();
+	Root->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+
+	// Lift overhead: object's bottom sits just above Tsuki's head.
+	const FBoxSphereBounds Bounds = Root->Bounds;
+	const float PivotAboveBottom = Root->GetComponentLocation().Z - (Bounds.Origin.Z - Bounds.BoxExtent.Z);
+	const FVector Overhead = Character->GetActorLocation()
+		+ FVector(0.f, 0.f, Character->GetCapsuleComponent()->GetScaledCapsuleHalfHeight() + CarryHeightOffset + PivotAboveBottom);
+	Root->SetWorldLocation(Overhead);
+	Object->AttachToComponent(Character->GetCapsuleComponent(), FAttachmentTransformRules::KeepWorldTransform);
+
+	UCharacterMovementComponent* Move = Character->GetCharacterMovement();
+	SavedMaxWalkSpeed = Move->MaxWalkSpeed;
+	Move->MaxWalkSpeed = SavedMaxWalkSpeed * CarrySpeedScale;
+
+	Carried = Holder;
+	OnPickedUp.Broadcast(Holder);
+	return true;
+}
+
+bool UGrabComponent::FindPutDownLocation(FVector& OutLocation) const
+{
+	const ACharacter* Character = GetCharacter();
+	const UPropertyHolderComponent* Holder = Carried.Get();
+	const UPrimitiveComponent* Root = Holder ? Cast<UPrimitiveComponent>(Holder->GetOwner()->GetRootComponent()) : nullptr;
+	if (!Character || !Root)
+	{
+		return false;
+	}
+	const FBoxSphereBounds Bounds = Root->Bounds;
+	const float PivotAboveBottom = Root->GetComponentLocation().Z - (Bounds.Origin.Z - Bounds.BoxExtent.Z);
+	const float ObjectRadius = FMath::Max(Bounds.BoxExtent.X, Bounds.BoxExtent.Y);
+	const FVector Ahead = Character->GetActorLocation()
+		+ Character->GetActorForwardVector() * (Character->GetCapsuleComponent()->GetScaledCapsuleRadius() + ObjectRadius + 15.f);
+
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(PutDownTrace), false, Character);
+	Params.AddIgnoredActor(Holder->GetOwner());
+	FHitResult Ground;
+	if (!GetWorld()->LineTraceSingleByChannel(Ground, Ahead + FVector(0.f, 0.f, 100.f), Ahead - FVector(0.f, 0.f, 300.f), ECC_Visibility, Params))
+	{
+		return false; // No floor in front (ledge): keep holding.
+	}
+	const FVector Target(Ahead.X, Ahead.Y, Ground.ImpactPoint.Z + PivotAboveBottom + 1.f);
+
+	// Room check, slightly shrunk so resting on the floor does not count as blocked.
+	const FVector Center = Target + (Bounds.Origin - Root->GetComponentLocation());
+	const FCollisionShape Box = FCollisionShape::MakeBox(Bounds.BoxExtent * 0.9f);
+	if (GetWorld()->OverlapBlockingTestByChannel(Center + FVector(0.f, 0.f, 2.f), FQuat::Identity, ECC_WorldDynamic, Box, Params))
+	{
+		return false;
+	}
+	OutLocation = Target;
+	return true;
+}
+
+bool UGrabComponent::PutDown()
+{
+	UPropertyHolderComponent* Holder = Carried.Get();
+	ACharacter* Character = GetCharacter();
+	if (!Holder || !Character)
+	{
+		return false;
+	}
+	FVector Target;
+	if (!FindPutDownLocation(Target))
+	{
+		return false;
+	}
+	AActor* Object = Holder->GetOwner();
+	Object->DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
+	Object->SetActorLocation(Target);
+	if (UPrimitiveComponent* Root = Cast<UPrimitiveComponent>(Object->GetRootComponent()))
+	{
+		Root->SetCollisionEnabled(CarriedSavedCollision);
+		Root->UpdateOverlaps();
+	}
+	Character->GetCharacterMovement()->MaxWalkSpeed = SavedMaxWalkSpeed;
+	Carried = nullptr;
+	OnPutDown.Broadcast(Holder);
+	return true;
+}
+
+void UGrabComponent::ForceReleaseAll()
+{
+	Release();
+	if (UPropertyHolderComponent* Holder = Carried.Get())
+	{
+		if (!PutDown())
+		{
+			// No room: drop it at Tsuki's feet.
+			AActor* Object = Holder->GetOwner();
+			Object->DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
+			if (ACharacter* Character = GetCharacter())
+			{
+				Object->SetActorLocation(Character->GetActorLocation());
+				Character->GetCharacterMovement()->MaxWalkSpeed = SavedMaxWalkSpeed;
+			}
+			if (UPrimitiveComponent* Root = Cast<UPrimitiveComponent>(Object->GetRootComponent()))
+			{
+				Root->SetCollisionEnabled(CarriedSavedCollision);
+			}
+			Carried = nullptr;
+			OnPutDown.Broadcast(Holder);
+		}
+	}
+}
+
+void UGrabComponent::Release()
+{
+	UPropertyHolderComponent* Holder = Grabbed.Get();
+	ACharacter* Character = GetCharacter();
+	if (!Holder)
+	{
+		Grabbed = nullptr;
+		return;
+	}
+	Grabbed = nullptr;
+	if (Character)
+	{
+		UCharacterMovementComponent* Move = Character->GetCharacterMovement();
+		Move->MaxWalkSpeed = SavedMaxWalkSpeed > 0.f ? SavedMaxWalkSpeed : Move->MaxWalkSpeed;
+		Move->bOrientRotationToMovement = bSavedOrientToMovement;
+		if (Holder->GetOwner())
+		{
+			Character->GetCapsuleComponent()->IgnoreActorWhenMoving(Holder->GetOwner(), false);
+			if (UPrimitiveComponent* Root = Cast<UPrimitiveComponent>(Holder->GetOwner()->GetRootComponent()))
+			{
+				Root->IgnoreActorWhenMoving(Character, false);
+			}
+		}
+	}
+	OnGrabReleased.Broadcast(Holder);
+}
+
+void UGrabComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
+{
+	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
+
+	UPropertyHolderComponent* Holder = Grabbed.Get();
+	ACharacter* Character = GetCharacter();
+	if (!Holder || !Character)
+	{
+		if (Grabbed.IsStale())
+		{
+			Grabbed = nullptr;
+		}
+		return;
+	}
+
+	// Losing Lightness mid-push (or falling) ends the grab.
+	if (Holder->GetEffectiveWeight() > MaxGrabWeight || !Character->GetCharacterMovement()->IsMovingOnGround())
+	{
+		Release();
+		OnGrabRefused.Broadcast(Holder);
+		return;
+	}
+
+	const FVector Now = Character->GetActorLocation();
+	const float AlongAxis = FVector::DotProduct(Now - LastOwnerLocation, GrabAxis);
+	if (!FMath::IsNearlyZero(AlongAxis))
+	{
+		USceneComponent* Root = Holder->GetOwner()->GetRootComponent();
+		FHitResult Hit;
+		Root->MoveComponent(GrabAxis * AlongAxis, Root->GetComponentQuat(), true, &Hit);
+		if (Hit.bBlockingHit)
+		{
+			// Object is stuck: hold Tsuki back by the part of the move the object could not make.
+			const float Blocked = AlongAxis * (1.f - Hit.Time);
+			Character->SetActorLocation(Now - GrabAxis * Blocked, false, nullptr, ETeleportType::TeleportPhysics);
+		}
+	}
+	LastOwnerLocation = Character->GetActorLocation();
+}

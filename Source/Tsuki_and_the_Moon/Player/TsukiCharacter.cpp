@@ -1,0 +1,399 @@
+﻿#include "Player/TsukiCharacter.h"
+#include "Player/ScissorsComponent.h"
+#include "Player/GrabComponent.h"
+#include "Properties/PropertyHolderComponent.h"
+#include "Core/TsukiProgressSubsystem.h"
+#include "World/FairyHintVolume.h"
+#include "World/ToolPickup.h"
+#include "Camera/CameraComponent.h"
+#include "GameFramework/SpringArmComponent.h"
+#include "GameFramework/CharacterMovementComponent.h"
+#include "GameFramework/PlayerController.h"
+#include "Components/CapsuleComponent.h"
+#include "EnhancedInputComponent.h"
+#include "EnhancedInputSubsystems.h"
+#include "InputMappingContext.h"
+#include "InputAction.h"
+#include "InputModifiers.h"
+#include "InputActionValue.h"
+#include "Engine/LocalPlayer.h"
+#include "Engine/World.h"
+#include "TimerManager.h"
+
+ATsukiCharacter::ATsukiCharacter()
+{
+	PrimaryActorTick.bCanEverTick = true;
+
+	GetCapsuleComponent()->InitCapsuleSize(38.f, 92.f);
+
+	bUseControllerRotationPitch = false;
+	bUseControllerRotationYaw = false;
+	bUseControllerRotationRoll = false;
+
+	// Quick, grounded, forgiving movement.
+	UCharacterMovementComponent* Move = GetCharacterMovement();
+	Move->bOrientRotationToMovement = true;
+	Move->RotationRate = FRotator(0.f, 720.f, 0.f);
+	Move->MaxWalkSpeed = 520.f;
+	Move->MinAnalogWalkSpeed = 40.f;
+	Move->MaxAcceleration = 2600.f;
+	Move->BrakingDecelerationWalking = 2600.f;
+	Move->GroundFriction = 10.f;
+	Move->JumpZVelocity = 560.f;
+	Move->AirControl = 0.45f;
+	Move->GravityScale = 1.6f;
+	Move->BrakingDecelerationFalling = 1000.f;
+	Move->MaxStepHeight = 40.f;
+	Move->PerchRadiusThreshold = 12.f;
+
+	CameraBoom = CreateDefaultSubobject<USpringArmComponent>(TEXT("CameraBoom"));
+	CameraBoom->SetupAttachment(RootComponent);
+	CameraBoom->TargetArmLength = 450.f;
+	CameraBoom->SocketOffset = FVector(0.f, 0.f, 60.f);
+	CameraBoom->bUsePawnControlRotation = true;
+	CameraBoom->bEnableCameraLag = true;
+	CameraBoom->CameraLagSpeed = 12.f;
+
+	FollowCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("FollowCamera"));
+	FollowCamera->SetupAttachment(CameraBoom, USpringArmComponent::SocketName);
+	FollowCamera->bUsePawnControlRotation = false;
+
+	Scissors = CreateDefaultSubobject<UScissorsComponent>(TEXT("Scissors"));
+	Grab = CreateDefaultSubobject<UGrabComponent>(TEXT("Grab"));
+
+	Weight = CreateDefaultSubobject<UPropertyHolderComponent>(TEXT("Weight"));
+	Weight->BaseWeight = 60.f;
+	Weight->bTargetable = false;
+	Weight->bShowGlow = false;
+}
+
+void ATsukiCharacter::BeginPlay()
+{
+	Super::BeginPlay();
+	StartTransform = GetActorTransform();
+
+	if (UTsukiProgressSubsystem* Progress = UTsukiProgressSubsystem::Get(this))
+	{
+		Scissors->SetScissorsEnabled(Progress->HasTool(ETsukiTool::Scissors));
+		Progress->OnToolGranted.AddDynamic(this, &ATsukiCharacter::HandleToolGranted);
+	}
+}
+
+void ATsukiCharacter::HandleToolGranted(ETsukiTool Tool)
+{
+	if (Tool == ETsukiTool::Scissors)
+	{
+		Scissors->SetScissorsEnabled(true);
+	}
+}
+
+void ATsukiCharacter::Tick(float DeltaSeconds)
+{
+	Super::Tick(DeltaSeconds);
+
+	if (GetCharacterMovement()->IsMovingOnGround())
+	{
+		LastGroundedTime = GetWorld()->GetTimeSeconds();
+		bCoyoteAvailable = true;
+	}
+
+	if (bRecentering && Controller)
+	{
+		FRotator Control = Controller->GetControlRotation();
+		const float TargetYaw = GetActorRotation().Yaw;
+		const float Speed = 180.f / FMath::Max(RecenterTime, 0.05f);
+		Control.Yaw = FMath::FixedTurn(Control.Yaw, TargetYaw, Speed * DeltaSeconds);
+		Control.Pitch = FMath::FInterpTo(FRotator::NormalizeAxis(Control.Pitch), -15.f, DeltaSeconds, 8.f);
+		Controller->SetControlRotation(Control);
+		if (FMath::IsNearlyEqual(FRotator::NormalizeAxis(Control.Yaw - TargetYaw), 0.f, 1.f))
+		{
+			bRecentering = false;
+		}
+	}
+}
+
+bool ATsukiCharacter::CanJumpInternal_Implementation() const
+{
+	if (Grab && Grab->IsGrabbing())
+	{
+		return false;
+	}
+	if (Super::CanJumpInternal_Implementation())
+	{
+		return true;
+	}
+	// Coyote time: a jump just after stepping off a ledge still counts.
+	const UCharacterMovementComponent* Move = GetCharacterMovement();
+	return bCoyoteAvailable && Move->IsFalling() && GetVelocity().Z <= 0.f
+		&& (GetWorld()->GetTimeSeconds() - LastGroundedTime) <= CoyoteTime;
+}
+
+void ATsukiCharacter::OnJumped_Implementation()
+{
+	Super::OnJumped_Implementation();
+	bCoyoteAvailable = false;
+}
+
+void ATsukiCharacter::FellOutOfWorld(const UDamageType& DamageType)
+{
+	Respawn(); // Never destroy Tsuki; return her nearby instead (GDD Â§2).
+}
+
+void ATsukiCharacter::Respawn()
+{
+	Grab->Release();
+	FTransform Target = StartTransform;
+	if (const UTsukiProgressSubsystem* Progress = UTsukiProgressSubsystem::Get(this))
+	{
+		Progress->GetRespawnTransform(Target);
+	}
+	GetCharacterMovement()->StopMovementImmediately();
+	TeleportTo(Target.GetLocation(), Target.Rotator(), false, true);
+	if (Controller)
+	{
+		Controller->SetControlRotation(FRotator(-15.f, Target.Rotator().Yaw, 0.f));
+	}
+	OnRespawned();
+}
+
+void ATsukiCharacter::PlayItemGet(ETsukiTool Tool)
+{
+	Grab->Release();
+	GetCharacterMovement()->StopMovementImmediately();
+	bInputLocked = true;
+	OnItemGet(Tool);
+	GetWorldTimerManager().SetTimer(ItemGetTimer, this, &ATsukiCharacter::EndItemGet, FMath::Max(ItemGetDuration, 0.01f), false);
+}
+
+void ATsukiCharacter::EndItemGet()
+{
+	bInputLocked = false;
+}
+
+AToolPickup* ATsukiCharacter::FindPickupInReach() const
+{
+	TArray<AActor*>& Overlaps = PickupOverlapCache; // Reused; the HUD calls this every frame.
+	Overlaps.Reset();
+	GetOverlappingActors(Overlaps, AToolPickup::StaticClass());
+	for (AActor* Actor : Overlaps)
+	{
+		AToolPickup* Pickup = Cast<AToolPickup>(Actor);
+		if (Pickup && Pickup->CanBeCollected())
+		{
+			return Pickup;
+		}
+	}
+	return nullptr;
+}
+
+void ATsukiCharacter::SetActiveHintVolume(AFairyHintVolume* Volume, bool bEntered)
+{
+	if (bEntered)
+	{
+		ActiveHintVolume = Volume;
+	}
+	else if (ActiveHintVolume.Get() == Volume)
+	{
+		ActiveHintVolume = nullptr;
+	}
+}
+
+// --- Input ---
+
+void ATsukiCharacter::BuildDefaultInput()
+{
+	auto MakeAction = [this](const TCHAR* Name, EInputActionValueType Type)
+	{
+		UInputAction* Action = NewObject<UInputAction>(this, Name);
+		Action->ValueType = Type;
+		return Action;
+	};
+	auto Swizzle = [](UObject* Outer) { return NewObject<UInputModifierSwizzleAxis>(Outer); };
+	auto Negate = [](UObject* Outer, bool bX, bool bY)
+	{
+		UInputModifierNegate* N = NewObject<UInputModifierNegate>(Outer);
+		N->bX = bX;
+		N->bY = bY;
+		N->bZ = false;
+		return N;
+	};
+
+	if (!MoveAction) { MoveAction = MakeAction(TEXT("IA_Tsuki_Move"), EInputActionValueType::Axis2D); }
+	if (!LookAction) { LookAction = MakeAction(TEXT("IA_Tsuki_Look"), EInputActionValueType::Axis2D); }
+	if (!JumpAction) { JumpAction = MakeAction(TEXT("IA_Tsuki_Jump"), EInputActionValueType::Boolean); }
+	if (!ScissorsAction) { ScissorsAction = MakeAction(TEXT("IA_Tsuki_Scissors"), EInputActionValueType::Boolean); }
+	if (!InteractAction) { InteractAction = MakeAction(TEXT("IA_Tsuki_Interact"), EInputActionValueType::Boolean); }
+	if (!ReturnAction) { ReturnAction = MakeAction(TEXT("IA_Tsuki_Return"), EInputActionValueType::Boolean); }
+	if (!HintAction) { HintAction = MakeAction(TEXT("IA_Tsuki_Hint"), EInputActionValueType::Boolean); }
+	if (!RecenterAction) { RecenterAction = MakeAction(TEXT("IA_Tsuki_Recenter"), EInputActionValueType::Boolean); }
+
+	UInputMappingContext* Ctx = NewObject<UInputMappingContext>(this, TEXT("IMC_Tsuki_Default"));
+
+	// Move: WASD + left stick.
+	Ctx->MapKey(MoveAction, EKeys::W).Modifiers.Add(Swizzle(Ctx));
+	{
+		FEnhancedActionKeyMapping& S = Ctx->MapKey(MoveAction, EKeys::S);
+		S.Modifiers.Add(Swizzle(Ctx));
+		S.Modifiers.Add(Negate(Ctx, true, true));
+	}
+	Ctx->MapKey(MoveAction, EKeys::D);
+	Ctx->MapKey(MoveAction, EKeys::A).Modifiers.Add(Negate(Ctx, true, true));
+	Ctx->MapKey(MoveAction, EKeys::Gamepad_Left2D).Modifiers.Add(NewObject<UInputModifierDeadZone>(Ctx));
+
+	// Look: mouse + right stick (mouse Y inverted so pushing up looks up).
+	Ctx->MapKey(LookAction, EKeys::Mouse2D).Modifiers.Add(Negate(Ctx, false, true));
+	Ctx->MapKey(LookAction, EKeys::Gamepad_Right2D).Modifiers.Add(NewObject<UInputModifierDeadZone>(Ctx));
+
+	Ctx->MapKey(JumpAction, EKeys::SpaceBar);
+	Ctx->MapKey(JumpAction, EKeys::Gamepad_FaceButton_Bottom);
+	Ctx->MapKey(ScissorsAction, EKeys::LeftMouseButton);
+	Ctx->MapKey(ScissorsAction, EKeys::Gamepad_RightTrigger);
+	Ctx->MapKey(InteractAction, EKeys::E);
+	Ctx->MapKey(InteractAction, EKeys::Gamepad_FaceButton_Left);
+	Ctx->MapKey(ReturnAction, EKeys::R);
+	Ctx->MapKey(ReturnAction, EKeys::Gamepad_FaceButton_Top);
+	Ctx->MapKey(HintAction, EKeys::Q);
+	Ctx->MapKey(HintAction, EKeys::Gamepad_DPad_Up);
+	Ctx->MapKey(RecenterAction, EKeys::MiddleMouseButton);
+	Ctx->MapKey(RecenterAction, EKeys::Gamepad_LeftTrigger);
+
+	MappingContext = Ctx;
+}
+
+void ATsukiCharacter::NotifyControllerChanged()
+{
+	Super::NotifyControllerChanged();
+	if (!MappingContext)
+	{
+		BuildDefaultInput();
+	}
+	if (const APlayerController* PC = Cast<APlayerController>(Controller))
+	{
+		if (UEnhancedInputLocalPlayerSubsystem* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(PC->GetLocalPlayer()))
+		{
+			Subsystem->AddMappingContext(MappingContext, 0);
+		}
+	}
+}
+
+void ATsukiCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
+{
+	if (!MappingContext)
+	{
+		BuildDefaultInput();
+	}
+	UEnhancedInputComponent* Input = Cast<UEnhancedInputComponent>(PlayerInputComponent);
+	if (!Input)
+	{
+		return;
+	}
+	Input->BindAction(MoveAction, ETriggerEvent::Triggered, this, &ATsukiCharacter::Move);
+	Input->BindAction(LookAction, ETriggerEvent::Triggered, this, &ATsukiCharacter::Look);
+	Input->BindAction(JumpAction, ETriggerEvent::Started, this, &ATsukiCharacter::StartJump);
+	Input->BindAction(JumpAction, ETriggerEvent::Completed, this, &ATsukiCharacter::StopJump);
+	Input->BindAction(ScissorsAction, ETriggerEvent::Started, this, &ATsukiCharacter::UseScissors);
+	Input->BindAction(InteractAction, ETriggerEvent::Started, this, &ATsukiCharacter::InteractStarted);
+	Input->BindAction(InteractAction, ETriggerEvent::Completed, this, &ATsukiCharacter::InteractCompleted);
+	Input->BindAction(ReturnAction, ETriggerEvent::Started, this, &ATsukiCharacter::ReturnProperty);
+	Input->BindAction(HintAction, ETriggerEvent::Started, this, &ATsukiCharacter::RequestHint);
+	Input->BindAction(RecenterAction, ETriggerEvent::Started, this, &ATsukiCharacter::Recenter);
+}
+
+void ATsukiCharacter::Move(const FInputActionValue& Value)
+{
+	if (bInputLocked || !Controller)
+	{
+		return;
+	}
+	const FVector2D Axis = Value.Get<FVector2D>();
+
+	if (Grab->IsGrabbing())
+	{
+		// While grabbing, only movement along the grab axis counts (push / pull).
+		const FRotator Yaw(0.f, Controller->GetControlRotation().Yaw, 0.f);
+		const FVector World = FRotationMatrix(Yaw).GetUnitAxis(EAxis::X) * Axis.Y + FRotationMatrix(Yaw).GetUnitAxis(EAxis::Y) * Axis.X;
+		const float Along = FVector::DotProduct(World, Grab->GetGrabAxis());
+		AddMovementInput(Grab->GetGrabAxis(), FMath::Abs(Along) > 0.3f ? FMath::Sign(Along) : 0.f);
+		return;
+	}
+
+	const FRotator Yaw(0.f, Controller->GetControlRotation().Yaw, 0.f);
+	AddMovementInput(FRotationMatrix(Yaw).GetUnitAxis(EAxis::X), Axis.Y);
+	AddMovementInput(FRotationMatrix(Yaw).GetUnitAxis(EAxis::Y), Axis.X);
+}
+
+void ATsukiCharacter::Look(const FInputActionValue& Value)
+{
+	if (bInputLocked)
+	{
+		return;
+	}
+	const FVector2D Axis = Value.Get<FVector2D>();
+	if (!Axis.IsNearlyZero())
+	{
+		bRecentering = false;
+	}
+	AddControllerYawInput(Axis.X);
+	AddControllerPitchInput(Axis.Y);
+}
+
+void ATsukiCharacter::StartJump()
+{
+	if (!bInputLocked)
+	{
+		Jump();
+	}
+}
+
+void ATsukiCharacter::StopJump()
+{
+	StopJumping();
+}
+
+void ATsukiCharacter::UseScissors()
+{
+	if (!bInputLocked && !Grab->IsGrabbing() && !Grab->IsCarrying())
+	{
+		Scissors->UseScissors();
+	}
+}
+
+void ATsukiCharacter::InteractStarted()
+{
+	if (bInputLocked)
+	{
+		return;
+	}
+	if (AToolPickup* Pickup = FindPickupInReach())
+	{
+		Pickup->Collect(this);
+		return;
+	}
+	Grab->TryGrab();
+}
+
+void ATsukiCharacter::InteractCompleted()
+{
+	Grab->Release();
+}
+
+void ATsukiCharacter::ReturnProperty()
+{
+	if (!bInputLocked)
+	{
+		Scissors->ReturnCarried();
+	}
+}
+
+void ATsukiCharacter::RequestHint()
+{
+	if (AFairyHintVolume* Volume = ActiveHintVolume.Get())
+	{
+		Volume->RequestHint();
+	}
+}
+
+void ATsukiCharacter::Recenter()
+{
+	bRecentering = true;
+}

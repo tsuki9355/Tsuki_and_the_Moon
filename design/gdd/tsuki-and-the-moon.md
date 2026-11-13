@@ -56,7 +56,7 @@ The fairy wakes Tsuki at the start, accompanies her, and acts as a friendly guid
 
 Example: near a heavy blocking stone, the fairy might say, “Maybe something light could help us move this.” Hints should refer to things the player can see or has already learned.
 
-The opening is brief and atmospheric: Tsuki wakes, meets the fairy, notices the scissors, and gains control quickly. The exact reason Tsuki is in this world remains a story mystery through this slice. The giant tree provides a meaningful lead toward what lies beyond.
+The opening is brief and atmospheric: Tsuki wakes in the clearing and the fairy greets her. She has no tools yet. The fairy flies ahead along a short, safe path to where the scissors rest; picking them up plays the tool pickup cue and one fairy line, and the first puzzle follows right after. The exact reason Tsuki is in this world remains a story mystery through this slice. The giant tree provides a meaningful lead toward what lies beyond.
 
 Use original melodic fantasy music, area-specific motifs, and short puzzle-success cues. Pressure-plate reveals temporarily take control for a brief, focused camera shot, then return control promptly. Tool pickups receive a distinct visual/audio cue and one concise fairy explanation.
 
@@ -82,7 +82,7 @@ The opening area teaches the player how the scissors work and introduces Lightne
 
 ### Spatial composition
 
-Build the area as a compact, gently curving forest trail that leads from an open wake-up clearing to a closed gate. The player starts in the clearing, where Tsuki wakes and meets the fairy. Frame a glimpse of the onward path beyond the gate so that the destination is visible before the player knows how to reach it.
+Build the area as a compact, gently curving forest trail that leads from an open wake-up clearing to a closed gate. The player starts in the clearing, where Tsuki wakes and meets the fairy. A short, safe path with no puzzles or hazards, with the fairy flying slightly ahead, leads from the clearing to the scissors' resting place, then continues to the blocking stone. Frame a glimpse of the onward path beyond the gate so that the destination is visible before the player knows how to reach it.
 
 The trail narrows at a heavy stone block that physically blocks the main route. Place a feather plant close by and within the same readable camera composition as the stone. This should feel like the first self-contained puzzle bay: enough room to circle both objects, aim the scissors, and push or pull the stone after changing it, but not so broad that the connection between plant and block is lost.
 
@@ -93,6 +93,7 @@ After the gate, the path transitions naturally toward the watery terrain of Sunk
 ### Key landmarks and set dressing
 
 - **Wake-up clearing:** A calm, sheltered pocket of grass and roots with a readable space for Tsuki and the fairy’s opening moment. Use a strong canopy opening or shaft of light to focus the initial view.
+- **Scissors resting place:** A small, lit nook at the end of the fairy's path where the scissors rest in clear view. It should read as special at a glance and sit just before the first puzzle bay.
 - **Feather plant:** A clearly recognizable magical plant with light, airy fronds and the Lightness identifier. It should look alive and distinct from ordinary foliage.
 - **Blocking stone:** A large, weighty, visually grounded stone whose position obviously prevents passage. Its mass is communicated by size, contact with the earth, and a subdued Heaviness visual.
 - **Large boulder:** A visibly heavier, rounded boulder with the Heaviness identifier. Keep it close enough to the gate puzzle that its intended use is discoverable.
@@ -101,6 +102,7 @@ After the gate, the path transitions naturally toward the watery terrain of Sunk
 
 ### Puzzle beats
 
+0. **Find the scissors:** Follow the fairy along the short path and pick up the scissors. The pickup plays the tool cue and one fairy explanation. Scissors actions are unavailable before this.
 1. **Move the blocking stone:** The player sees the stone blocking the route and the nearby feather plant. Cut Lightness from the plant and attach it to the stone. The plant loses its Lightness effect; the stone visibly becomes lighter, and Tsuki can push or pull it clear.
 2. **Open the gate:** The small pebble is too light to hold down the pressure plate. Cut Heaviness from the large boulder and attach it to the pebble. Place or move the heavier pebble onto the plate. The plate depresses, a brief camera reveal and musical cue show the gate opening, and the player proceeds.
 3. **Optional return visit:** After obtaining the Moonthread Hook in Area 2, the player can return to hook onto the high wooden platform and open the chest containing a Moon Fragment.
@@ -112,6 +114,7 @@ Use warm leaf-filtered light, fresh greens, soft earth browns, and a few luminou
 ### Readability checks
 
 - From the start, the player should see or quickly discover the main route and the first obstruction.
+- The fairy's path to the scissors is short and obvious.
 - The feather plant and blocking stone should read as a plausible source/receiver pair.
 - The boulder, pebble, plate, and gate must be visually connected as the second puzzle.
 - The optional high chest should be noticeable but clearly unreachable until a traversal tool is acquired.
