@@ -42,6 +42,11 @@ void AHookTarget::SetAimed(bool bAimed)
 	}
 }
 
+void AHookTarget::SetMarkerFlash(bool bVisible)
+{
+	Marker->SetVisibility(bHookEnabled && bVisible);
+}
+
 FVector AHookTarget::GetAnchorLocation() const
 {
 	return Marker->GetComponentLocation();

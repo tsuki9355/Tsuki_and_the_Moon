@@ -3,6 +3,7 @@
 #include "Player/ScissorsComponent.h"
 #include "Player/GrabComponent.h"
 #include "Player/HookComponent.h"
+#include "Player/BombComponent.h"
 #include "Properties/PropertyHolderComponent.h"
 #include "Properties/TsukiPropertySettings.h"
 #include "Core/TsukiProgressSubsystem.h"
@@ -110,9 +111,13 @@ void ATsukiHUD::DrawHUD()
 		case EGrabPrompt::PickUp:   InteractPrompt = NSLOCTEXT("TsukiHUD", "Lift", "[E] Pick Up"); break;
 		case EGrabPrompt::TooHeavy: InteractPrompt = NSLOCTEXT("TsukiHUD", "TooHeavy", "Too heavy to move"); break;
 		case EGrabPrompt::Pushing:  InteractPrompt = NSLOCTEXT("TsukiHUD", "Pushing", "Push / Pull   (release [E] to let go)"); break;
-		case EGrabPrompt::PutDown:  InteractPrompt = NSLOCTEXT("TsukiHUD", "PutDown", "[E] Put Down"); break;
+		case EGrabPrompt::PutDown:  InteractPrompt = NSLOCTEXT("TsukiHUD", "PutDown", "[E] Put Down     [LMB] Throw"); break;
 		default: break;
 		}
+	}
+	if (Tsuki->Bombs && Tsuki->Bombs->IsHoldingBomb())
+	{
+		InteractPrompt = NSLOCTEXT("TsukiHUD", "BombHeld", "[E] Put Down     [F / LMB] Throw");
 	}
 
 	// Scissors prompt (LMB / R). Hidden while hands are busy, since the scissors can't be used then.
@@ -129,10 +134,18 @@ void ATsukiHUD::DrawHUD()
 		ScissorsPrompt += (ScissorsPrompt.IsEmpty() ? TEXT("") : TEXT("     ")) + NSLOCTEXT("TsukiHUD", "Return", "[R] Return property").ToString();
 	}
 
-	// Moonthread Hook: gold lock-on marker and prompt when a target is in the aim cone.
+	// Moonthread Hook: while aiming, a crosshair that turns into a gold lock-on frame over a marker.
 	if (Tsuki->Hook && Tsuki->Hook->IsHookEnabled() && !bBusyHands)
 	{
-		if (Tsuki->Hook->GetAimedTarget())
+		if (Tsuki->Hook->IsAiming() && !Tsuki->Hook->GetAimedTarget())
+		{
+			const float CX = Canvas->ClipX * 0.5f, CY = Canvas->ClipY * 0.5f;
+			const FLinearColor White(1.f, 1.f, 1.f, 0.8f);
+			DrawPanel(CX - 10.f * S, CY - 1.f * S, 20.f * S, 2.f * S, White);
+			DrawPanel(CX - 1.f * S, CY - 10.f * S, 2.f * S, 20.f * S, White);
+			ScissorsPrompt = NSLOCTEXT("TsukiHUD", "Aiming", "Release [RMB] to fire").ToString();
+		}
+		else if (Tsuki->Hook->GetAimedTarget())
 		{
 			const float R = 12.f * S;
 			const float CX = Canvas->ClipX * 0.5f, CY = Canvas->ClipY * 0.5f;
@@ -141,12 +154,21 @@ void ATsukiHUD::DrawHUD()
 			DrawPanel(CX - R, CY + R - 1.f * S, R * 2.f, 3.f * S, Gold);
 			DrawPanel(CX - R - 2.f * S, CY - R, 3.f * S, R * 2.f, Gold);
 			DrawPanel(CX + R - 1.f * S, CY - R, 3.f * S, R * 2.f, Gold);
-			ScissorsPrompt += (ScissorsPrompt.IsEmpty() ? TEXT("") : TEXT("     ")) + NSLOCTEXT("TsukiHUD", "Hook", "[RMB] Hook").ToString();
+			ScissorsPrompt = NSLOCTEXT("TsukiHUD", "Hook", "Release [RMB] to hook").ToString();
 		}
 		else if (!bHasScissors)
 		{
 			DrawPanel(Canvas->ClipX * 0.5f - 4.f * S, Canvas->ClipY * 0.5f - 4.f * S, 8.f * S, 8.f * S, FLinearColor(1.f, 1.f, 1.f, 0.35f));
 		}
+	}
+
+	// Moonlit Bombs.
+	if (Tsuki->Bombs && Tsuki->Bombs->AreBombsEnabled() && !Tsuki->Bombs->IsHoldingBomb() && !bBusyHands && !(Tsuki->Hook && Tsuki->Hook->IsAiming()))
+	{
+		const FText BombText = Tsuki->Bombs->IsHoldingBomb()
+			? NSLOCTEXT("TsukiHUD", "Throw", "[F] Throw Bomb")
+			: NSLOCTEXT("TsukiHUD", "Bomb", "[F] Bomb");
+		ScissorsPrompt += (ScissorsPrompt.IsEmpty() ? TEXT("") : TEXT("     ")) + BombText.ToString();
 	}
 
 	const float LineH = 42.f * S;

@@ -12,6 +12,7 @@ class UInputAction;
 class UScissorsComponent;
 class UGrabComponent;
 class UHookComponent;
+class UBombComponent;
 class UPropertyHolderComponent;
 class AFairyHintVolume;
 class AToolPickup;
@@ -45,6 +46,9 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Tsuki")
 	TObjectPtr<UHookComponent> Hook;
 
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Tsuki")
+	TObjectPtr<UBombComponent> Bombs;
+
 	/** Tsuki's own weight on pressure plates. Not a scissors target. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Tsuki")
 	TObjectPtr<UPropertyHolderComponent> Weight;
@@ -58,6 +62,17 @@ public:
 	/** Seconds to swing the camera behind Tsuki when recentering. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tsuki|Feel", meta = (ClampMin = "0.05"))
 	float RecenterTime = 0.25f;
+
+	// --- Hook aiming camera ---
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tsuki|Aim", meta = (ClampMin = "50.0"))
+	float AimArmLength = 170.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tsuki|Aim")
+	FVector AimSocketOffset = FVector(0.f, 55.f, 70.f);
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tsuki|Aim", meta = (ClampMin = "30.0", ClampMax = "120.0"))
+	float AimFOV = 70.f;
 
 	// --- Swimming (surface only) ---
 
@@ -118,6 +133,9 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input")
 	TObjectPtr<UInputAction> HookAction;
 
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input")
+	TObjectPtr<UInputAction> BombAction;
+
 	/** Return to the last checkpoint (or the start) after a fall. */
 	UFUNCTION(BlueprintCallable, Category = "Tsuki")
 	void Respawn();
@@ -160,6 +178,13 @@ private:
 	void RequestHint();
 	void Recenter();
 	void FireHook();
+	void ReleaseHook();
+	void UpdateAimCamera(float DeltaSeconds);
+
+	float DefaultArmLength = 450.f;
+	FVector DefaultSocketOffset = FVector(0.f, 0.f, 60.f);
+	float DefaultFOV = 90.f;
+	void UseBomb();
 	bool IsActionLocked() const;
 	void EndItemGet();
 

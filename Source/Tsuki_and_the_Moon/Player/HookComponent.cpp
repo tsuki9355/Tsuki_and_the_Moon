@@ -34,23 +34,37 @@ void UHookComponent::BeginPlay()
 	}
 }
 
-AHookTarget* UHookComponent::FindTarget() const
+bool UHookComponent::GetAimRay(FVector& OutStart, FVector& OutDir) const
 {
 	const ACharacter* Character = Cast<ACharacter>(GetOwner());
 	const AController* Controller = Character ? Character->GetController() : nullptr;
 	if (!Controller)
 	{
-		return nullptr;
+		return false;
 	}
 	FVector ViewLoc;
 	FRotator ViewRot;
 	Controller->GetPlayerViewPoint(ViewLoc, ViewRot);
-	const FVector ViewDir = ViewRot.Vector();
-	const FVector From = Character->GetActorLocation();
-	const float CosCone = FMath::Cos(FMath::DegreesToRadians(AimConeDegrees));
+	OutDir = ViewRot.Vector();
+	// Start level with Tsuki along the view ray so nothing behind her is picked.
+	const float Ahead = FMath::Max(0.f, FVector::DotProduct(Character->GetActorLocation() - ViewLoc, OutDir));
+	OutStart = ViewLoc + OutDir * Ahead;
+	return true;
+}
 
+AHookTarget* UHookComponent::FindTarget() const
+{
+	const ACharacter* Character = Cast<ACharacter>(GetOwner());
+	FVector RayStart, RayDir;
+	if (!Character || !GetAimRay(RayStart, RayDir))
+	{
+		return nullptr;
+	}
+	const FVector From = Character->GetActorLocation();
+
+	// Precise: the crosshair ray must pass within AimTolerance of the marker.
 	AHookTarget* Best = nullptr;
-	float BestDot = CosCone;
+	float BestAlong = TNumericLimits<float>::Max();
 	for (TActorIterator<AHookTarget> It(GetWorld()); It; ++It)
 	{
 		AHookTarget* Target = *It;
@@ -63,12 +77,16 @@ AHookTarget* UHookComponent::FindTarget() const
 		{
 			continue;
 		}
-		const float Dot = FVector::DotProduct((Anchor - ViewLoc).GetSafeNormal(), ViewDir);
-		if (Dot <= BestDot)
+		const float Along = FVector::DotProduct(Anchor - RayStart, RayDir);
+		if (Along <= 0.f || Along >= BestAlong)
 		{
 			continue;
 		}
-		// Line of sight from Tsuki to just short of the anchor.
+		const FVector Closest = RayStart + RayDir * Along;
+		if (FVector::DistSquared(Closest, Anchor) > FMath::Square(AimTolerance))
+		{
+			continue;
+		}
 		FCollisionQueryParams Params(SCENE_QUERY_STAT(HookSight), false, Character);
 		Params.AddIgnoredActor(Target);
 		const FVector Dir = (Anchor - From).GetSafeNormal();
@@ -78,14 +96,14 @@ AHookTarget* UHookComponent::FindTarget() const
 			continue;
 		}
 		Best = Target;
-		BestDot = Dot;
+		BestAlong = Along;
 	}
 	return Best;
 }
 
 void UHookComponent::UpdateAim()
 {
-	AHookTarget* NewTarget = (bHookEnabled && State == EState::Idle) ? FindTarget() : nullptr;
+	AHookTarget* NewTarget = (bHookEnabled && bAiming && State == EState::Idle) ? FindTarget() : nullptr;
 	if (NewTarget != AimedTarget.Get())
 	{
 		if (AHookTarget* Old = AimedTarget.Get())
@@ -100,44 +118,86 @@ void UHookComponent::UpdateAim()
 	}
 }
 
+void UHookComponent::StartAiming()
+{
+	if (bHookEnabled && State == EState::Idle)
+	{
+		bAiming = true;
+	}
+}
+
+void UHookComponent::ReleaseAim()
+{
+	if (!bAiming)
+	{
+		return;
+	}
+	UpdateAim();
+	Fire();
+	bAiming = false;
+	UpdateAim();
+}
+
 bool UHookComponent::Fire()
 {
 	ACharacter* Character = Cast<ACharacter>(GetOwner());
-	AHookTarget* Target = AimedTarget.Get();
-	if (!bHookEnabled || State != EState::Idle || !Character || !Target)
+	if (!bHookEnabled || State != EState::Idle || !Character)
 	{
 		return false;
 	}
-	ActiveTarget = Target;
-	Target->SetAimed(false);
-	AimedTarget = nullptr;
-	State = EState::Firing;
-	StateTime = 0.f;
-	TipLocation = Character->GetActorLocation();
-	Thread->SetVisibility(true);
-	if (FireSound)
+	FVector RayStart, RayDir;
+	if (!GetAimRay(RayStart, RayDir))
 	{
-		UGameplayStatics::PlaySoundAtLocation(this, FireSound, Character->GetActorLocation());
+		return false;
 	}
-	// Face the target, Ocarina-style.
-	FVector Flat = Target->GetAnchorLocation() - Character->GetActorLocation();
+
+	// Face the shot.
+	FVector Flat = RayDir;
 	Flat.Z = 0.f;
 	if (!Flat.IsNearlyZero())
 	{
 		Character->SetActorRotation(Flat.Rotation());
 	}
-	return true;
+	TipLocation = Character->GetActorLocation();
+	StateTime = 0.f;
+	Thread->SetVisibility(true);
+	if (FireSound)
+	{
+		UGameplayStatics::PlaySoundAtLocation(this, FireSound, Character->GetActorLocation());
+	}
+
+	if (AHookTarget* Target = AimedTarget.Get())
+	{
+		ActiveTarget = Target;
+		Target->SetAimed(false);
+		AimedTarget = nullptr;
+		State = EState::Firing;
+		return true;
+	}
+
+	// Miss: fly straight along the crosshair to whatever it hits (or full range), then reel back.
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(HookWhiff), false, Character);
+	FHitResult Hit;
+	const FVector End = RayStart + RayDir * Range;
+	WhiffEnd = GetWorld()->LineTraceSingleByChannel(Hit, RayStart, End, ECC_Visibility, Params) ? Hit.ImpactPoint : End;
+	ActiveTarget = nullptr;
+	State = EState::Whiff;
+	return false;
 }
 
 void UHookComponent::Cancel()
 {
+	bAiming = false;
 	if (State == EState::Idle)
 	{
 		return;
 	}
-	if (ACharacter* Character = Cast<ACharacter>(GetOwner()))
+	if (State == EState::Pulling || State == EState::Mantling)
 	{
-		Character->GetCharacterMovement()->SetMovementMode(MOVE_Falling);
+		if (ACharacter* Character = Cast<ACharacter>(GetOwner()))
+		{
+			Character->GetCharacterMovement()->SetMovementMode(MOVE_Falling);
+		}
 	}
 	Finish();
 }
@@ -167,6 +227,7 @@ void UHookComponent::UpdateThread(const FVector& Tip)
 		Thread->SetVisibility(false);
 		return;
 	}
+	Thread->SetVisibility(true);
 	// The engine cylinder is 100 cm tall along Z: stretch it between hand and tip.
 	Thread->SetWorldLocation((Hand + Tip) * 0.5f);
 	Thread->SetWorldRotation(FRotationMatrix::MakeFromZ(Span / Length).Rotator());
@@ -179,17 +240,39 @@ void UHookComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorC
 	UpdateAim();
 
 	ACharacter* Character = Cast<ACharacter>(GetOwner());
-	AHookTarget* Target = ActiveTarget.Get();
 	if (State == EState::Idle || !Character)
 	{
 		return;
 	}
+	StateTime += DeltaTime;
+
+	// Misses: out along the crosshair, then back to the hand.
+	if (State == EState::Whiff || State == EState::Retract)
+	{
+		const FVector Hand = Character->GetActorLocation() + Character->GetActorForwardVector() * 30.f + FVector(0.f, 0.f, 30.f);
+		const FVector Goal = State == EState::Whiff ? WhiffEnd : Hand;
+		TipLocation = FMath::VInterpConstantTo(TipLocation, Goal, DeltaTime, ShootSpeed);
+		UpdateThread(TipLocation);
+		if (TipLocation.Equals(Goal, 5.f))
+		{
+			if (State == EState::Whiff)
+			{
+				State = EState::Retract;
+			}
+			else
+			{
+				Finish();
+			}
+		}
+		return;
+	}
+
+	AHookTarget* Target = ActiveTarget.Get();
 	if (!Target)
 	{
 		Cancel();
 		return;
 	}
-	StateTime += DeltaTime;
 	UCharacterMovementComponent* Move = Character->GetCharacterMovement();
 	const float HalfHeight = Character->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
 	const FVector Anchor = Target->GetAnchorLocation();

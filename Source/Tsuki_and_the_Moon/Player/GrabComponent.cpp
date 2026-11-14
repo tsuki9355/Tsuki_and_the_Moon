@@ -235,6 +235,30 @@ bool UGrabComponent::PutDown()
 	return true;
 }
 
+bool UGrabComponent::Throw()
+{
+	UPropertyHolderComponent* Holder = Carried.Get();
+	ACharacter* Character = GetCharacter();
+	UPrimitiveComponent* Root = Holder ? Cast<UPrimitiveComponent>(Holder->GetOwner()->GetRootComponent()) : nullptr;
+	if (!Root || !Character)
+	{
+		return false;
+	}
+	AActor* Object = Holder->GetOwner();
+	Object->DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
+	Root->SetCollisionEnabled(CarriedSavedCollision);
+	Root->IgnoreActorWhenMoving(Character, true);
+	Character->GetCapsuleComponent()->IgnoreActorWhenMoving(Object, true);
+	Root->SetSimulatePhysics(true);
+	Root->SetPhysicsLinearVelocity(Character->GetActorForwardVector() * ThrowForward + FVector(0.f, 0.f, ThrowUp) + Character->GetVelocity() * 0.5f);
+	Character->GetCharacterMovement()->MaxWalkSpeed = SavedMaxWalkSpeed;
+	Carried = nullptr;
+	Thrown = Root;
+	ThrownTime = 0.f;
+	OnPutDown.Broadcast(Holder);
+	return true;
+}
+
 void UGrabComponent::ForceReleaseAll()
 {
 	Release();
@@ -290,6 +314,25 @@ void UGrabComponent::Release()
 void UGrabComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
+
+	// A thrown object flies with physics, then is frozen where it comes to rest so it behaves like
+	// any other placed object (plates, ponds, push/pull).
+	if (UPrimitiveComponent* T = Thrown.Get())
+	{
+		ThrownTime += DeltaTime;
+		if ((ThrownTime > 0.4f && T->GetPhysicsLinearVelocity().SizeSquared() < 30.f * 30.f) || ThrownTime > 4.f)
+		{
+			T->SetSimulatePhysics(false);
+			T->SetWorldRotation(FRotator(0.f, T->GetComponentRotation().Yaw, 0.f));
+			if (ACharacter* Character = GetCharacter())
+			{
+				T->IgnoreActorWhenMoving(Character, false);
+				Character->GetCapsuleComponent()->IgnoreActorWhenMoving(T->GetOwner(), false);
+			}
+			T->UpdateOverlaps();
+			Thrown = nullptr;
+		}
+	}
 
 	UPropertyHolderComponent* Holder = Grabbed.Get();
 	ACharacter* Character = GetCharacter();

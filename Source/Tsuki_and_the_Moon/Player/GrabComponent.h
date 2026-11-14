@@ -79,6 +79,17 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Grab")
 	bool PutDown();
 
+	/** Toss the carried object forward; it flies with physics, then settles where it lands. */
+	UFUNCTION(BlueprintCallable, Category = "Grab")
+	bool Throw();
+
+	/** Throw speed forward / up (cm/s). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Grab")
+	float ThrowForward = 550.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Grab")
+	float ThrowUp = 350.f;
+
 	/** Drop whatever is held without checks (respawn, item-get). */
 	void ForceReleaseAll();
 
@@ -117,6 +128,8 @@ private:
 
 	TWeakObjectPtr<UPropertyHolderComponent> Grabbed;
 	TWeakObjectPtr<UPropertyHolderComponent> Carried;
+	TWeakObjectPtr<UPrimitiveComponent> Thrown;
+	float ThrownTime = 0.f;
 	TEnumAsByte<ECollisionEnabled::Type> CarriedSavedCollision = ECollisionEnabled::QueryAndPhysics;
 	FVector GrabAxis = FVector::ForwardVector;
 	FVector LastOwnerLocation = FVector::ZeroVector;

@@ -42,6 +42,9 @@ public:
 	/** Called by the hook when this becomes or stops being the aimed target. */
 	void SetAimed(bool bAimed);
 
+	/** Hide/show the marker only (warning blink before a timed target switches off). */
+	void SetMarkerFlash(bool bVisible);
+
 	UFUNCTION(BlueprintImplementableEvent, Category = "Hook")
 	void OnHookEnabledChanged(bool bEnabled);
 

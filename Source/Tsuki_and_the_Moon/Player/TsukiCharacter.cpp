@@ -2,6 +2,7 @@
 #include "Player/ScissorsComponent.h"
 #include "Player/GrabComponent.h"
 #include "Player/HookComponent.h"
+#include "Player/BombComponent.h"
 #include "Properties/PropertyHolderComponent.h"
 #include "Core/TsukiProgressSubsystem.h"
 #include "World/FairyHintVolume.h"
@@ -62,6 +63,7 @@ ATsukiCharacter::ATsukiCharacter()
 	Scissors = CreateDefaultSubobject<UScissorsComponent>(TEXT("Scissors"));
 	Grab = CreateDefaultSubobject<UGrabComponent>(TEXT("Grab"));
 	Hook = CreateDefaultSubobject<UHookComponent>(TEXT("Hook"));
+	Bombs = CreateDefaultSubobject<UBombComponent>(TEXT("Bombs"));
 
 	Weight = CreateDefaultSubobject<UPropertyHolderComponent>(TEXT("Weight"));
 	Weight->BaseWeight = 60.f;
@@ -73,11 +75,15 @@ void ATsukiCharacter::BeginPlay()
 {
 	Super::BeginPlay();
 	StartTransform = GetActorTransform();
+	DefaultArmLength = CameraBoom->TargetArmLength;
+	DefaultSocketOffset = CameraBoom->SocketOffset;
+	DefaultFOV = FollowCamera->FieldOfView;
 
 	if (UTsukiProgressSubsystem* Progress = UTsukiProgressSubsystem::Get(this))
 	{
 		Scissors->SetScissorsEnabled(Progress->HasTool(ETsukiTool::Scissors));
 		Hook->SetHookEnabled(Progress->HasTool(ETsukiTool::MoonthreadHook));
+		Bombs->SetBombsEnabled(Progress->HasTool(ETsukiTool::MoonlitBombs));
 		Progress->OnToolGranted.AddDynamic(this, &ATsukiCharacter::HandleToolGranted);
 	}
 }
@@ -91,6 +97,10 @@ void ATsukiCharacter::HandleToolGranted(ETsukiTool Tool)
 	else if (Tool == ETsukiTool::MoonthreadHook)
 	{
 		Hook->SetHookEnabled(true);
+	}
+	else if (Tool == ETsukiTool::MoonlitBombs)
+	{
+		Bombs->SetBombsEnabled(true);
 	}
 }
 
@@ -108,6 +118,7 @@ void ATsukiCharacter::Tick(float DeltaSeconds)
 	{
 		TickSwimming(DeltaSeconds);
 	}
+	UpdateAimCamera(DeltaSeconds);
 
 	if (bRecentering && Controller)
 	{
@@ -235,9 +246,11 @@ bool ATsukiCharacter::TryClimbOut()
 	const FVector Fwd = GetActorForwardVector();
 	FCollisionQueryParams Params(SCENE_QUERY_STAT(ClimbOut), false, this);
 
-	// Something in front at chest height?
+	// Something in front at chest height, or right at the waterline (thin rims and overhanging edges)?
 	FHitResult Wall;
-	if (!GetWorld()->LineTraceSingleByChannel(Wall, Loc, Loc + Fwd * (Radius + 40.f), ECC_Visibility, Params))
+	const FVector AtWaterline(Loc.X, Loc.Y, WaterSurfaceZ + 5.f);
+	if (!GetWorld()->LineTraceSingleByChannel(Wall, Loc, Loc + Fwd * (Radius + 40.f), ECC_Visibility, Params)
+		&& !GetWorld()->LineTraceSingleByChannel(Wall, AtWaterline, AtWaterline + Fwd * (Radius + 40.f), ECC_Visibility, Params))
 	{
 		return false;
 	}
@@ -352,6 +365,7 @@ void ATsukiCharacter::BuildDefaultInput()
 	if (!HintAction) { HintAction = MakeAction(TEXT("IA_Tsuki_Hint"), EInputActionValueType::Boolean); }
 	if (!RecenterAction) { RecenterAction = MakeAction(TEXT("IA_Tsuki_Recenter"), EInputActionValueType::Boolean); }
 	if (!HookAction) { HookAction = MakeAction(TEXT("IA_Tsuki_Hook"), EInputActionValueType::Boolean); }
+	if (!BombAction) { BombAction = MakeAction(TEXT("IA_Tsuki_Bomb"), EInputActionValueType::Boolean); }
 
 	UInputMappingContext* Ctx = NewObject<UInputMappingContext>(this, TEXT("IMC_Tsuki_Default"));
 
@@ -384,6 +398,8 @@ void ATsukiCharacter::BuildDefaultInput()
 	Ctx->MapKey(RecenterAction, EKeys::Gamepad_LeftTrigger);
 	Ctx->MapKey(HookAction, EKeys::RightMouseButton);
 	Ctx->MapKey(HookAction, EKeys::Gamepad_RightShoulder);
+	Ctx->MapKey(BombAction, EKeys::F);
+	Ctx->MapKey(BombAction, EKeys::Gamepad_FaceButton_Right);
 
 	MappingContext = Ctx;
 }
@@ -426,6 +442,8 @@ void ATsukiCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComp
 	Input->BindAction(HintAction, ETriggerEvent::Started, this, &ATsukiCharacter::RequestHint);
 	Input->BindAction(RecenterAction, ETriggerEvent::Started, this, &ATsukiCharacter::Recenter);
 	Input->BindAction(HookAction, ETriggerEvent::Started, this, &ATsukiCharacter::FireHook);
+	Input->BindAction(HookAction, ETriggerEvent::Completed, this, &ATsukiCharacter::ReleaseHook);
+	Input->BindAction(BombAction, ETriggerEvent::Started, this, &ATsukiCharacter::UseBomb);
 }
 
 void ATsukiCharacter::Move(const FInputActionValue& Value)
@@ -481,7 +499,21 @@ void ATsukiCharacter::StopJump()
 
 void ATsukiCharacter::UseScissors()
 {
-	if (!IsActionLocked() && !Grab->IsGrabbing() && !Grab->IsCarrying())
+	if (IsActionLocked() || Grab->IsGrabbing() || Hook->IsAiming())
+	{
+		return;
+	}
+	// Hands full: the same button throws what Tsuki is holding.
+	if (Grab->IsCarrying())
+	{
+		Grab->Throw();
+		return;
+	}
+	if (Bombs->IsHoldingBomb())
+	{
+		Bombs->UseBomb();
+		return;
+	}
 	{
 		Scissors->UseScissors();
 	}
@@ -489,16 +521,24 @@ void ATsukiCharacter::UseScissors()
 
 void ATsukiCharacter::InteractStarted()
 {
-	if (bInputLocked)
+	if (bInputLocked || Hook->IsAiming())
 	{
 		return;
 	}
-	if (AToolPickup* Pickup = FindPickupInReach())
+	if (Bombs->IsHoldingBomb())
 	{
-		Pickup->Collect(this);
+		Bombs->PlaceBomb();
 		return;
 	}
-	Grab->TryGrab();
+	if (!Grab->IsCarrying())
+	{
+		if (AToolPickup* Pickup = FindPickupInReach())
+		{
+			Pickup->Collect(this);
+			return;
+		}
+	}
+	Grab->TryGrab(); // Also puts down a carried object.
 }
 
 void ATsukiCharacter::InteractCompleted()
@@ -529,13 +569,41 @@ void ATsukiCharacter::Recenter()
 
 bool ATsukiCharacter::IsActionLocked() const
 {
-	return bInputLocked || (Hook && Hook->IsBusy());
+	return bInputLocked || (Hook && Hook->IsBusy()); // Aiming still allows walking/strafing.
 }
 
 void ATsukiCharacter::FireHook()
 {
-	if (!IsActionLocked() && !Grab->IsGrabbing() && !Grab->IsCarrying())
+	// Hold to aim (camera zooms in), release to fire.
+	if (!IsActionLocked() && !Grab->IsGrabbing() && !Grab->IsCarrying() && !Bombs->IsHoldingBomb() && !bSwimming)
 	{
-		Hook->Fire();
+		Hook->StartAiming();
+	}
+}
+
+void ATsukiCharacter::ReleaseHook()
+{
+	Hook->ReleaseAim();
+}
+
+void ATsukiCharacter::UpdateAimCamera(float DeltaSeconds)
+{
+	const bool bAim = Hook && Hook->IsAiming();
+	// Ocarina-style hookshot aim: pull in over the shoulder, narrow the view, face the crosshair.
+	CameraBoom->TargetArmLength = FMath::FInterpTo(CameraBoom->TargetArmLength, bAim ? AimArmLength : DefaultArmLength, DeltaSeconds, 10.f);
+	CameraBoom->SocketOffset = FMath::VInterpTo(CameraBoom->SocketOffset, bAim ? AimSocketOffset : DefaultSocketOffset, DeltaSeconds, 10.f);
+	FollowCamera->SetFieldOfView(FMath::FInterpTo(FollowCamera->FieldOfView, bAim ? AimFOV : DefaultFOV, DeltaSeconds, 10.f));
+	bUseControllerRotationYaw = bAim;
+	if (!Grab->IsGrabbing())
+	{
+		GetCharacterMovement()->bOrientRotationToMovement = !bAim;
+	}
+}
+
+void ATsukiCharacter::UseBomb()
+{
+	if (!IsActionLocked() && !Grab->IsGrabbing() && !Grab->IsCarrying() && !bSwimming && !Hook->IsAiming())
+	{
+		Bombs->UseBomb();
 	}
 }
