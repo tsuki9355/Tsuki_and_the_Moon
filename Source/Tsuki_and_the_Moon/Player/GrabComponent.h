@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
@@ -22,7 +22,7 @@ enum class EGrabPrompt : uint8
 };
 
 /**
- * Push/pull and carry (GDD §2, §6 Area 1).
+ * Push/pull and carry (GDD Â§2, Â§6 Area 1).
  * - Pushable blocks: hold Interact facing one; Tsuki snaps to it and moves it slowly along that axis.
  * - Carryable small objects: press Interact to lift it overhead and walk freely; press again to set it down.
  * Objects heavier than the limits refuse; this is how Lightness "enables push/pull".
@@ -90,6 +90,26 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Grab")
 	float ThrowUp = 350.f;
 
+	/** Seconds into the pick-up animation when her hands reach the object. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Grab|Timing")
+	float LiftGrabTime = 0.18f;
+
+	/** Seconds into the put-down when the object leaves her hands. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Grab|Timing")
+	float LowerReleaseTime = 0.2f;
+
+	/** Seconds into the throw animation when the object is released. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Grab|Timing")
+	float ThrowReleaseTime = 0.22f;
+
+	/** Blend time when moving the object between ground and hands. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Grab|Timing")
+	float HandBlendTime = 0.1f;
+
+	/** True while lifting, lowering or throwing: movement waits for the animation. */
+	UFUNCTION(BlueprintPure, Category = "Grab")
+	bool IsBusy() const { return CarryPhase == ECarryPhase::Lifting || CarryPhase == ECarryPhase::Lowering || CarryPhase == ECarryPhase::Throwing; }
+
 	/** Drop whatever is held without checks (respawn, item-get). */
 	void ForceReleaseAll();
 
@@ -121,7 +141,18 @@ public:
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 
 private:
+	enum class ECarryPhase : uint8 { None, Lifting, Holding, Lowering, Throwing };
+
 	ACharacter* GetCharacter() const;
+	FVector GetHoldPivot(const UPrimitiveComponent* Root) const;
+	void TickCarry(float DeltaTime);
+	void FinishPutDown();
+	void ReleaseThrow();
+
+	ECarryPhase CarryPhase = ECarryPhase::None;
+	float PhaseTime = 0.f;
+	FVector PhaseFrom = FVector::ZeroVector;
+	FVector PutTarget = FVector::ZeroVector;
 	bool StartPush(UPropertyHolderComponent* Holder, const FVector& Normal);
 	bool StartCarry(UPropertyHolderComponent* Holder);
 	bool FindPutDownLocation(FVector& OutLocation) const;

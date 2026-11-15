@@ -84,3 +84,7 @@ Content/__ExternalObjects__/ThirdPerson/
 Content/__ExternalObjects__/Variant_*/
 Content/Collections/
 Content/Developers/
+
+# Raw source art (FBX/PNG exports); only imported Unreal assets are committed
+Tsuki_and_the_Moon_assets/
+

@@ -66,6 +66,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Property")
 	bool bShowGlow = true;
 
+	/** Set while Tsuki is holding this object, so ponds and other systems leave it alone. */
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "Property")
+	bool bHeldByPlayer = false;
+
 	UPROPERTY(BlueprintAssignable, Category = "Property")
 	FOnMoonPropertyChanged OnPropertyChanged;
 

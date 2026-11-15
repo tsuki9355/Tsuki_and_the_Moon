@@ -12,4 +12,8 @@ class TSUKI_AND_THE_MOON_API ATsukiGameMode : public AGameModeBase
 
 public:
 	ATsukiGameMode();
+
+	/** Console: "TsukiNewGame" erases the save and restarts the slice from the opening. */
+	UFUNCTION(Exec, BlueprintCallable, Category = "Tsuki")
+	void TsukiNewGame();
 };

@@ -219,7 +219,11 @@ void UHookComponent::UpdateThread(const FVector& Tip)
 	{
 		return;
 	}
-	const FVector Hand = Character->GetActorLocation() + Character->GetActorForwardVector() * 30.f + FVector(0.f, 0.f, 30.f);
+	static const FName HandBone(TEXT("RightHand"));
+	const USkeletalMeshComponent* SkMesh = Character->GetMesh();
+	const FVector Hand = (SkMesh && SkMesh->DoesSocketExist(HandBone))
+		? SkMesh->GetSocketLocation(HandBone)
+		: Character->GetActorLocation() + Character->GetActorForwardVector() * 30.f + FVector(0.f, 0.f, 30.f);
 	const FVector Span = Tip - Hand;
 	const float Length = Span.Size();
 	if (Length < 1.f)

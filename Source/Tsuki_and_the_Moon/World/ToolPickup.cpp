@@ -85,7 +85,7 @@ void AToolPickup::Collect(ATsukiCharacter* Collector)
 	{
 		UGameplayStatics::PlaySound2D(this, PickupSound);
 	}
-	Collector->PlayItemGet(Tool);
+	Collector->PlayItemGet(Tool, bIsMoonFragment);
 	if (ATsukiHUD* HUD = ATsukiHUD::Get(this))
 	{
 		if (!FairyLine.IsEmpty())

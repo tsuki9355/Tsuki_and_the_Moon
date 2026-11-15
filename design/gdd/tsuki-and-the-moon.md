@@ -306,7 +306,7 @@ Fairy guide                       |         Simple 3D mesh + emmisive material +
 Tsuki prompt for AI:
 Full body original stylized 3D fantasy adventure game protagonist named Tsuki, a young adventurous girl with short dark lavender hair, expressive eyes, simple cream tunic, midnight blue short cape with a crescent moon emblem, leather boots, small belt pouch, whimsical hand-painted storybook style, clean chunky forms, game-ready humanoid proportions, arms slightly extended in an A-pose, legs separated, symmetrical neutral standing pose, plain neutral background, no objects held, no text.
 
-Tsuki prompt for AI:
+Fairy prompt for AI:
 An adorable tiny magical moon fairy companion for a stylized 3D fantasy adventure game. Small rounded glowing lavender body, expressive large eyes, two delicate translucent crescent-shaped wings, subtle celestial markings, whimsical cozy storybook art style, simple clean geometry, soft hand-painted colors, friendly curious personality, floating neutral pose, isolated character, plain background, no environment, no text.
 
 

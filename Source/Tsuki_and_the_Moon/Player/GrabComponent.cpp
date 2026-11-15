@@ -155,22 +155,103 @@ bool UGrabComponent::StartCarry(UPropertyHolderComponent* Holder)
 
 	CarriedSavedCollision = Root->GetCollisionEnabled();
 	Root->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	Holder->bHeldByPlayer = true;
 
-	// Lift overhead: object's bottom sits just above Tsuki's head.
-	const FBoxSphereBounds Bounds = Root->Bounds;
-	const float PivotAboveBottom = Root->GetComponentLocation().Z - (Bounds.Origin.Z - Bounds.BoxExtent.Z);
-	const FVector Overhead = Character->GetActorLocation()
-		+ FVector(0.f, 0.f, Character->GetCapsuleComponent()->GetScaledCapsuleHalfHeight() + CarryHeightOffset + PivotAboveBottom);
-	Root->SetWorldLocation(Overhead);
-	Object->AttachToComponent(Character->GetCapsuleComponent(), FAttachmentTransformRules::KeepWorldTransform);
+	// The object stays put until her hands reach it in the pick-up animation (see TickCarry).
+	Character->GetCharacterMovement()->StopMovementImmediately();
+	FVector Flat = Object->GetActorLocation() - Character->GetActorLocation();
+	Flat.Z = 0.f;
+	if (!Flat.IsNearlyZero())
+	{
+		Character->SetActorRotation(Flat.Rotation());
+	}
 
 	UCharacterMovementComponent* Move = Character->GetCharacterMovement();
 	SavedMaxWalkSpeed = Move->MaxWalkSpeed;
 	Move->MaxWalkSpeed = SavedMaxWalkSpeed * CarrySpeedScale;
 
 	Carried = Holder;
+	CarryPhase = ECarryPhase::Lifting;
+	PhaseTime = 0.f;
+	PhaseFrom = Root->GetComponentLocation();
 	OnPickedUp.Broadcast(Holder);
 	return true;
+}
+
+FVector UGrabComponent::GetHoldPivot(const UPrimitiveComponent* Root) const
+{
+	const ACharacter* Character = GetCharacter();
+	const USkeletalMeshComponent* Mesh = Character ? Character->GetMesh() : nullptr;
+	const FVector PivotToCenter = Root->Bounds.Origin - Root->GetComponentLocation();
+	static const FName LeftHand(TEXT("LeftHand"));
+	static const FName RightHand(TEXT("RightHand"));
+	if (Mesh && Mesh->DoesSocketExist(LeftHand) && Mesh->DoesSocketExist(RightHand))
+	{
+		// Object centered between her hands, so it moves with every animation.
+		const FVector Mid = (Mesh->GetSocketLocation(LeftHand) + Mesh->GetSocketLocation(RightHand)) * 0.5f;
+		return Mid - PivotToCenter;
+	}
+	// Fallback (no hand bones): just above her head.
+	const FBoxSphereBounds Bounds = Root->Bounds;
+	const float PivotAboveBottom = Root->GetComponentLocation().Z - (Bounds.Origin.Z - Bounds.BoxExtent.Z);
+	return Character->GetActorLocation()
+		+ FVector(0.f, 0.f, Character->GetCapsuleComponent()->GetScaledCapsuleHalfHeight() + CarryHeightOffset + PivotAboveBottom);
+}
+
+void UGrabComponent::TickCarry(float DeltaTime)
+{
+	UPropertyHolderComponent* Holder = Carried.Get();
+	UPrimitiveComponent* Root = Holder ? Cast<UPrimitiveComponent>(Holder->GetOwner()->GetRootComponent()) : nullptr;
+	if (!Root || CarryPhase == ECarryPhase::None)
+	{
+		return;
+	}
+	PhaseTime += DeltaTime;
+	const FVector Hold = GetHoldPivot(Root);
+	const float Blend = FMath::Max(HandBlendTime, 0.01f);
+
+	switch (CarryPhase)
+	{
+	case ECarryPhase::Lifting:
+		if (PhaseTime >= LiftGrabTime)
+		{
+			const float A = FMath::Clamp((PhaseTime - LiftGrabTime) / Blend, 0.f, 1.f);
+			Root->SetWorldLocation(FMath::Lerp(PhaseFrom, Hold, FMath::InterpEaseInOut(0.f, 1.f, A, 2.f)));
+			if (A >= 1.f)
+			{
+				CarryPhase = ECarryPhase::Holding;
+			}
+		}
+		break;
+	case ECarryPhase::Holding:
+		Root->SetWorldLocation(Hold);
+		break;
+	case ECarryPhase::Lowering:
+		if (PhaseTime < LowerReleaseTime)
+		{
+			Root->SetWorldLocation(Hold);
+			PhaseFrom = Hold;
+		}
+		else
+		{
+			const float A = FMath::Clamp((PhaseTime - LowerReleaseTime) / Blend, 0.f, 1.f);
+			Root->SetWorldLocation(FMath::Lerp(PhaseFrom, PutTarget, FMath::InterpEaseInOut(0.f, 1.f, A, 2.f)));
+			if (A >= 1.f)
+			{
+				FinishPutDown();
+			}
+		}
+		break;
+	case ECarryPhase::Throwing:
+		Root->SetWorldLocation(Hold);
+		if (PhaseTime >= ThrowReleaseTime)
+		{
+			ReleaseThrow();
+		}
+		break;
+	default:
+		break;
+	}
 }
 
 bool UGrabComponent::FindPutDownLocation(FVector& OutLocation) const
@@ -212,7 +293,7 @@ bool UGrabComponent::PutDown()
 {
 	UPropertyHolderComponent* Holder = Carried.Get();
 	ACharacter* Character = GetCharacter();
-	if (!Holder || !Character)
+	if (!Holder || !Character || CarryPhase != ECarryPhase::Holding)
 	{
 		return false;
 	}
@@ -221,31 +302,65 @@ bool UGrabComponent::PutDown()
 	{
 		return false;
 	}
+	// Lower with the animation; FinishPutDown() runs once it reaches the ground.
+	Character->GetCharacterMovement()->StopMovementImmediately();
+	PutTarget = Target;
+	CarryPhase = ECarryPhase::Lowering;
+	PhaseTime = 0.f;
+	return true;
+}
+
+void UGrabComponent::FinishPutDown()
+{
+	UPropertyHolderComponent* Holder = Carried.Get();
+	ACharacter* Character = GetCharacter();
+	if (!Holder)
+	{
+		CarryPhase = ECarryPhase::None;
+		return;
+	}
 	AActor* Object = Holder->GetOwner();
-	Object->DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
-	Object->SetActorLocation(Target);
+	Object->SetActorLocation(PutTarget);
 	if (UPrimitiveComponent* Root = Cast<UPrimitiveComponent>(Object->GetRootComponent()))
 	{
 		Root->SetCollisionEnabled(CarriedSavedCollision);
 		Root->UpdateOverlaps();
 	}
-	Character->GetCharacterMovement()->MaxWalkSpeed = SavedMaxWalkSpeed;
+	if (Character)
+	{
+		Character->GetCharacterMovement()->MaxWalkSpeed = SavedMaxWalkSpeed;
+	}
+	Holder->bHeldByPlayer = false;
 	Carried = nullptr;
+	CarryPhase = ECarryPhase::None;
 	OnPutDown.Broadcast(Holder);
-	return true;
 }
 
 bool UGrabComponent::Throw()
 {
-	UPropertyHolderComponent* Holder = Carried.Get();
-	ACharacter* Character = GetCharacter();
-	UPrimitiveComponent* Root = Holder ? Cast<UPrimitiveComponent>(Holder->GetOwner()->GetRootComponent()) : nullptr;
-	if (!Root || !Character)
+	if (!Carried.IsValid() || CarryPhase != ECarryPhase::Holding)
 	{
 		return false;
 	}
+	// Released partway into the throw animation (ReleaseThrow).
+	CarryPhase = ECarryPhase::Throwing;
+	PhaseTime = 0.f;
+	return true;
+}
+
+void UGrabComponent::ReleaseThrow()
+{
+	UPropertyHolderComponent* Holder = Carried.Get();
+	ACharacter* Character = GetCharacter();
+	UPrimitiveComponent* Root = Holder ? Cast<UPrimitiveComponent>(Holder->GetOwner()->GetRootComponent()) : nullptr;
+	CarryPhase = ECarryPhase::None;
+	if (!Root || !Character)
+	{
+		Carried = nullptr;
+		return;
+	}
 	AActor* Object = Holder->GetOwner();
-	Object->DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
+	Holder->bHeldByPlayer = false;
 	Root->SetCollisionEnabled(CarriedSavedCollision);
 	Root->IgnoreActorWhenMoving(Character, true);
 	Character->GetCapsuleComponent()->IgnoreActorWhenMoving(Object, true);
@@ -256,7 +371,6 @@ bool UGrabComponent::Throw()
 	Thrown = Root;
 	ThrownTime = 0.f;
 	OnPutDown.Broadcast(Holder);
-	return true;
 }
 
 void UGrabComponent::ForceReleaseAll()
@@ -264,23 +378,14 @@ void UGrabComponent::ForceReleaseAll()
 	Release();
 	if (UPropertyHolderComponent* Holder = Carried.Get())
 	{
-		if (!PutDown())
+		// Immediate drop (respawn etc.): in front of her if there is room, else at her feet.
+		FVector Target;
+		if (!FindPutDownLocation(Target))
 		{
-			// No room: drop it at Tsuki's feet.
-			AActor* Object = Holder->GetOwner();
-			Object->DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
-			if (ACharacter* Character = GetCharacter())
-			{
-				Object->SetActorLocation(Character->GetActorLocation());
-				Character->GetCharacterMovement()->MaxWalkSpeed = SavedMaxWalkSpeed;
-			}
-			if (UPrimitiveComponent* Root = Cast<UPrimitiveComponent>(Object->GetRootComponent()))
-			{
-				Root->SetCollisionEnabled(CarriedSavedCollision);
-			}
-			Carried = nullptr;
-			OnPutDown.Broadcast(Holder);
+			Target = GetCharacter() ? GetCharacter()->GetActorLocation() : Holder->GetOwner()->GetActorLocation();
 		}
+		PutTarget = Target;
+		FinishPutDown();
 	}
 }
 
@@ -314,6 +419,7 @@ void UGrabComponent::Release()
 void UGrabComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
+	TickCarry(DeltaTime);
 
 	// A thrown object flies with physics, then is frozen where it comes to rest so it behaves like
 	// any other placed object (plates, ponds, push/pull).

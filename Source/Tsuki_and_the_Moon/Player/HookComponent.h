@@ -24,7 +24,7 @@ public:
 	UHookComponent();
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Hook", meta = (ClampMin = "100.0"))
-	float Range = 1800.f;
+	float Range = 1000.f;
 
 	/** How close (cm) the crosshair ray must pass to a target's marker to lock on. Small = precise, Ocarina-style. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Hook", meta = (ClampMin = "5.0"))
@@ -57,6 +57,10 @@ public:
 	/** True while firing, pulling or climbing up; movement input is ignored. */
 	UFUNCTION(BlueprintPure, Category = "Hook")
 	bool IsBusy() const { return State != EState::Idle; }
+
+	/** True only once the hook has latched (being pulled in or climbing up), not while firing or after a miss. */
+	UFUNCTION(BlueprintPure, Category = "Hook")
+	bool IsLatched() const { return State == EState::Pulling || State == EState::Mantling; }
 
 	/** Target under the crosshair while aiming, or null. */
 	UFUNCTION(BlueprintPure, Category = "Hook")

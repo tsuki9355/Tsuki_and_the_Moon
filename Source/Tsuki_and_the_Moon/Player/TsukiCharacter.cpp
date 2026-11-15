@@ -3,6 +3,7 @@
 #include "Player/GrabComponent.h"
 #include "Player/HookComponent.h"
 #include "Player/BombComponent.h"
+#include "Player/TsukiAnimInstance.h"
 #include "Properties/PropertyHolderComponent.h"
 #include "Core/TsukiProgressSubsystem.h"
 #include "World/FairyHintVolume.h"
@@ -12,6 +13,8 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/PlayerController.h"
 #include "Components/CapsuleComponent.h"
+#include "Components/StaticMeshComponent.h"
+#include "Animation/AnimSequenceBase.h"
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
 #include "InputMappingContext.h"
@@ -69,6 +72,84 @@ ATsukiCharacter::ATsukiCharacter()
 	Weight->BaseWeight = 60.f;
 	Weight->bTargetable = false;
 	Weight->bShowGlow = false;
+
+	HandItem = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("HandItem"));
+	HandItem->SetupAttachment(GetMesh(), TEXT("RightHand"));
+	HandItem->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	HandItem->SetVisibility(false);
+
+	ItemGetDisplay = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("ItemGetDisplay"));
+	ItemGetDisplay->SetupAttachment(RootComponent);
+	ItemGetDisplay->SetUsingAbsoluteLocation(true);
+	ItemGetDisplay->SetUsingAbsoluteRotation(true);
+	ItemGetDisplay->SetUsingAbsoluteScale(true);
+	ItemGetDisplay->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	ItemGetDisplay->SetVisibility(false);
+
+	// Front close-up, slightly to her side and below eye level, looking back at her face.
+	ItemGetCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("ItemGetCamera"));
+	ItemGetCamera->SetupAttachment(RootComponent);
+	// Closer and higher than before so the raised item isn't cut off (frames upper body + item).
+	ItemGetCamera->SetRelativeLocation(FVector(170.f, -50.f, 85.f));
+	ItemGetCamera->SetRelativeRotation(FRotator(-1.f, 163.5f, 0.f));
+	ItemGetCamera->SetFieldOfView(50.f);
+	ItemGetCamera->SetAutoActivate(false);
+}
+
+FVector ATsukiCharacter::GetHandsMid() const
+{
+	static const FName L(TEXT("LeftHand"));
+	static const FName R(TEXT("RightHand"));
+	const USkeletalMeshComponent* SkMesh = GetMesh();
+	if (SkMesh && SkMesh->DoesSocketExist(L) && SkMesh->DoesSocketExist(R))
+	{
+		return (SkMesh->GetSocketLocation(L) + SkMesh->GetSocketLocation(R)) * 0.5f;
+	}
+	return GetActorLocation() + FVector(0.f, 0.f, 120.f);
+}
+
+void ATsukiCharacter::TickItems(float DeltaSeconds)
+{
+	// Hook in her right hand while aiming or using it.
+	const bool bShowHook = Hook && (Hook->IsAiming() || Hook->IsBusy());
+	if (bShowHook && !HandItem->GetStaticMesh())
+	{
+		if (const FTsukiItemDisplay* D = ToolDisplays.Find(ETsukiTool::MoonthreadHook))
+		{
+			HandItem->SetStaticMesh(D->Mesh);
+			// World scale: the hand bone inherits the skeleton's x100 Hips scale, so relative scale lies.
+			HandItem->SetUsingAbsoluteScale(true);
+			HandItem->SetWorldScale3D(FVector(D->Scale));
+			HandItem->SetRelativeRotation(D->Rotation);
+		}
+	}
+	HandItem->SetVisibility(bShowHook);
+
+	// Item-get: the item rides above her raised hands and turns slowly.
+	if (bInItemGet && ItemGetDisplay->IsVisible())
+	{
+		ItemGetDisplay->SetWorldLocation(GetHandsMid() + FVector(0.f, 0.f, 25.f));
+		ItemGetDisplay->AddWorldRotation(FRotator(0.f, 60.f * DeltaSeconds, 0.f));
+	}
+}
+
+void ATsukiCharacter::TickClimbOut(float DeltaSeconds)
+{
+	if (ClimbAlpha < 0.f)
+	{
+		return;
+	}
+	ClimbAlpha = FMath::Min(ClimbAlpha + DeltaSeconds / FMath::Max(ClimbOutTime, 0.1f), 1.f);
+	// Pull up first, then step forward onto the ledge.
+	const float Up = FMath::InterpEaseOut(0.f, 1.f, FMath::Min(ClimbAlpha * 1.6f, 1.f), 2.f);
+	const float Fwd = FMath::InterpEaseInOut(0.f, 1.f, FMath::Clamp((ClimbAlpha - 0.35f) / 0.65f, 0.f, 1.f), 2.f);
+	const FVector Pos(FMath::Lerp(ClimbFrom.X, ClimbTo.X, Fwd), FMath::Lerp(ClimbFrom.Y, ClimbTo.Y, Fwd), FMath::Lerp(ClimbFrom.Z, ClimbTo.Z, Up));
+	SetActorLocation(Pos, false, nullptr, ETeleportType::TeleportPhysics);
+	if (ClimbAlpha >= 1.f)
+	{
+		ClimbAlpha = -1.f;
+		GetCharacterMovement()->SetMovementMode(MOVE_Walking);
+	}
 }
 
 void ATsukiCharacter::BeginPlay()
@@ -84,6 +165,13 @@ void ATsukiCharacter::BeginPlay()
 		Scissors->SetScissorsEnabled(Progress->HasTool(ETsukiTool::Scissors));
 		Hook->SetHookEnabled(Progress->HasTool(ETsukiTool::MoonthreadHook));
 		Bombs->SetBombsEnabled(Progress->HasTool(ETsukiTool::MoonlitBombs));
+
+		// Continuing a saved game: start at the last checkpoint.
+		FTransform Saved;
+		if (Progress->HasLoadedSave() && Progress->GetRespawnTransform(Saved))
+		{
+			TeleportTo(Saved.GetLocation(), Saved.Rotator(), false, true);
+		}
 		Progress->OnToolGranted.AddDynamic(this, &ATsukiCharacter::HandleToolGranted);
 	}
 }
@@ -118,6 +206,8 @@ void ATsukiCharacter::Tick(float DeltaSeconds)
 	{
 		TickSwimming(DeltaSeconds);
 	}
+	TickClimbOut(DeltaSeconds);
+	TickItems(DeltaSeconds);
 	UpdateAimCamera(DeltaSeconds);
 
 	if (bRecentering && Controller)
@@ -168,7 +258,7 @@ void ATsukiCharacter::UpdateWater(float SurfaceZ)
 {
 	WaterSurfaceZ = SurfaceZ;
 	LastWaterTime = GetWorld()->GetTimeSeconds();
-	if (bSwimming || Hook->IsBusy())
+	if (bSwimming || Hook->IsBusy() || ClimbAlpha >= 0.f)
 	{
 		return;
 	}
@@ -266,12 +356,23 @@ bool ATsukiCharacter::TryClimbOut()
 		return false;
 	}
 	const FVector Dest(Over.X, Over.Y, Top.ImpactPoint.Z + HalfHeight + 2.f);
-	if (!SetActorLocation(Dest, false, nullptr, ETeleportType::TeleportPhysics))
+	// Room to stand there?
+	if (GetWorld()->OverlapBlockingTestByChannel(Dest + FVector(0.f, 0.f, 5.f), FQuat::Identity, ECC_Pawn,
+		FCollisionShape::MakeCapsule(Radius * 0.9f, HalfHeight * 0.9f), Params))
 	{
 		return false;
 	}
+	// Smooth pull-up over ClimbOutTime (TickClimbOut) instead of a teleport.
 	bSwimming = false;
-	GetCharacterMovement()->SetMovementMode(MOVE_Walking);
+	GetCharacterMovement()->StopMovementImmediately();
+	GetCharacterMovement()->SetMovementMode(MOVE_Flying);
+	ClimbFrom = Loc;
+	ClimbTo = Dest;
+	ClimbAlpha = 0.f;
+	if (UTsukiAnimInstance* Anim = GetTsukiAnim())
+	{
+		Anim->PlayAction(Anim->ClimbUp, Anim->ClimbUp ? Anim->ClimbUp->GetPlayLength() / FMath::Max(ClimbOutTime, 0.1f) : 1.f);
+	}
 	return true;
 }
 
@@ -294,11 +395,32 @@ void ATsukiCharacter::Respawn()
 	OnRespawned();
 }
 
-void ATsukiCharacter::PlayItemGet(ETsukiTool Tool)
+void ATsukiCharacter::PlayItemGet(ETsukiTool Tool, bool bMoonFragment)
 {
 	Grab->Release();
+	Hook->Cancel();
 	GetCharacterMovement()->StopMovementImmediately();
 	bInputLocked = true;
+	bInItemGet = true;
+
+	// Ocarina-style item get: cut to a fixed front close-up, hold the item up over her head.
+	const FTsukiItemDisplay* Display = bMoonFragment ? &MoonFragmentDisplay : ToolDisplays.Find(Tool);
+	if (Display && Display->Mesh)
+	{
+		ItemGetDisplay->SetStaticMesh(Display->Mesh);
+		ItemGetDisplay->SetWorldScale3D(FVector(Display->Scale));
+		ItemGetDisplay->SetWorldRotation(GetActorRotation() + Display->Rotation);
+		ItemGetDisplay->SetWorldLocation(GetHandsMid() + FVector(0.f, 0.f, 25.f));
+		ItemGetDisplay->SetVisibility(true);
+	}
+	FollowCamera->SetActive(false);
+	ItemGetCamera->SetActive(true);
+
+	if (UTsukiAnimInstance* Anim = GetTsukiAnim())
+	{
+		const float Len = Anim->ItemGet ? Anim->ItemGet->GetPlayLength() : ItemGetDuration;
+		Anim->PlayAction(Anim->ItemGet, FMath::Max(Len / FMath::Max(ItemGetDuration, 0.1f), 0.5f));
+	}
 	OnItemGet(Tool);
 	GetWorldTimerManager().SetTimer(ItemGetTimer, this, &ATsukiCharacter::EndItemGet, FMath::Max(ItemGetDuration, 0.01f), false);
 }
@@ -306,6 +428,10 @@ void ATsukiCharacter::PlayItemGet(ETsukiTool Tool)
 void ATsukiCharacter::EndItemGet()
 {
 	bInputLocked = false;
+	bInItemGet = false;
+	ItemGetDisplay->SetVisibility(false);
+	ItemGetCamera->SetActive(false);
+	FollowCamera->SetActive(true);
 }
 
 AToolPickup* ATsukiCharacter::FindPickupInReach() const
@@ -504,14 +630,22 @@ void ATsukiCharacter::UseScissors()
 		return;
 	}
 	// Hands full: the same button throws what Tsuki is holding.
+	UTsukiAnimInstance* Anim = GetTsukiAnim();
 	if (Grab->IsCarrying())
 	{
-		Grab->Throw();
+		if (Grab->Throw() && Anim && Anim->Throw)
+		{
+			Anim->PlayAction(Anim->Throw, Anim->Throw->GetPlayLength() * ThrowClipReleaseFraction / FMath::Max(Grab->ThrowReleaseTime, 0.05f));
+		}
 		return;
 	}
 	if (Bombs->IsHoldingBomb())
 	{
 		Bombs->UseBomb();
+		if (Anim && Anim->Throw)
+		{
+			Anim->PlayAction(Anim->Throw, Anim->Throw->GetPlayLength() * ThrowClipReleaseFraction / FMath::Max(Bombs->ThrowReleaseDelay, 0.05f));
+		}
 		return;
 	}
 	{
@@ -538,7 +672,15 @@ void ATsukiCharacter::InteractStarted()
 			return;
 		}
 	}
-	Grab->TryGrab(); // Also puts down a carried object.
+	const bool bWasCarrying = Grab->IsCarrying();
+	if (Grab->TryGrab() && (bWasCarrying || Grab->IsCarrying())) // Pick up, or put down a carried object.
+	{
+		if (UTsukiAnimInstance* Anim = GetTsukiAnim())
+		{
+			// Cut the clip once the object has reached her hands; the carry loop takes over from there.
+			Anim->PlayAction(Anim->PickUp, 2.6f, Grab->LiftGrabTime + Grab->HandBlendTime + 0.1f);
+		}
+	}
 }
 
 void ATsukiCharacter::InteractCompleted()
@@ -567,9 +709,15 @@ void ATsukiCharacter::Recenter()
 	bRecentering = true;
 }
 
+UTsukiAnimInstance* ATsukiCharacter::GetTsukiAnim() const
+{
+	return GetMesh() ? Cast<UTsukiAnimInstance>(GetMesh()->GetAnimInstance()) : nullptr;
+}
+
 bool ATsukiCharacter::IsActionLocked() const
 {
-	return bInputLocked || (Hook && Hook->IsBusy()); // Aiming still allows walking/strafing.
+	// Aiming still allows walking/strafing; lifting, lowering, throwing and climbing out do not.
+	return bInputLocked || (Hook && Hook->IsBusy()) || (Grab && Grab->IsBusy()) || ClimbAlpha >= 0.f;
 }
 
 void ATsukiCharacter::FireHook()

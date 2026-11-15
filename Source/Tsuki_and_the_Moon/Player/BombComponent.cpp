@@ -49,12 +49,21 @@ void UBombComponent::UseBomb()
 
 	if (ATsukiBomb* Bomb = Held.Get())
 	{
-		if (!Bomb->HasExploded())
-		{
-			const FVector Vel = Character->GetActorForwardVector() * TossForward + FVector(0.f, 0.f, TossUp) + Character->GetVelocity() * 0.5f;
-			Bomb->Throw(Vel);
-		}
+		// Release partway into the throw animation so the bomb leaves her hands on the swing.
 		Held = nullptr;
+		TWeakObjectPtr<ATsukiBomb> WeakBomb = Bomb;
+		TWeakObjectPtr<ACharacter> WeakChar = Character;
+		const float Forward = TossForward, Up = TossUp;
+		FTimerHandle Handle;
+		GetWorld()->GetTimerManager().SetTimer(Handle, [WeakBomb, WeakChar, Forward, Up]()
+		{
+			ATsukiBomb* B = WeakBomb.Get();
+			ACharacter* C = WeakChar.Get();
+			if (B && C && !B->HasExploded())
+			{
+				B->Throw(C->GetActorForwardVector() * Forward + FVector(0.f, 0.f, Up) + C->GetVelocity() * 0.5f);
+			}
+		}, FMath::Max(ThrowReleaseDelay, 0.01f), false);
 		return;
 	}
 

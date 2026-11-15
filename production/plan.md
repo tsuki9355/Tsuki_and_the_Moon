@@ -118,6 +118,31 @@ Placeholders are fine until M4. You don't need to import anything for M0 or M1 b
 | M3 | Optional: modular wood/tree pieces for canopy platforms | Moving platform, pulley, lily pad, wheel, cracked surfaces, tree blockout |
 | M4 | Tsuki (AI mesh + auto-rig), fairy mesh, Moon Scissors, feather plant, treasure chest, Moonthread Hook, magical snail, giant lily pad, Moonlit Bombs (all per GDD §12 prompts); Fab environment packs; music and SFX | Materials, Niagara polish, swaps of placeholders |
 
+### M4 import checklist
+
+Look: original stylized fantasy in the spirit of the Ocarina remake: chunky readable shapes, saturated but soft colors, hand-painted-looking textures, warm light. No assets or content copied from it.
+
+**Rules for every import:** FBX (or GLB) in centimeters, Z-up, facing +X, pivot at the bottom center (chest lid: pivot at the hinge); textures 2K max; names `SK_` skeletal, `SM_` static, `T_` textures, `A_` anims, `S_`/`MUS_` audio. Drop into `Content/Tsuki/Art/{Characters,Props,Environment}` and `Content/Tsuki/Audio/{Music,SFX}`.
+
+| # | Asset | How to make it | Notes |
+|---|---|---|---|
+| 1 | **Tsuki** (`SK_Tsuki`) | AI 3D generator (Meshy / Tripo / Rodin) with the GDD §12 prompt, A-pose → rig with Mixamo auto-rigger (or UE IK Retargeter onto Manny) | ~1.5 m tall; I retarget the anims |
+| 2 | **Tsuki animations** | Mixamo (same rig) | idle, walk, run, jump start/loop/land, push, pull, carry idle + carry walk, throw, pick up/put down, swim idle + swim, item-get (both arms up), aim (one arm forward), climb up ledge, fall |
+| 3 | **Fairy** | AI generator with the GDD prompt, or I build it in-engine (glow sphere + wings + Niagara) | Static mesh is enough |
+| 4 | Moon Scissors | AI generator, GDD prompt | Static; ~40 cm |
+| 5 | Feather plant | AI generator: "magical plant with pale airy feather fronds, stylized" | Two states look nice (fronds up / drooped) but one mesh is fine |
+| 6 | Treasure chest | AI generator **or** Fab | Body and lid as **separate** meshes |
+| 7 | Moonthread Hook | AI generator | Static; held item |
+| 8 | Magical snail | AI generator: "cute glowing fantasy snail, slow, sleepy" | Static |
+| 9 | Giant lily pad | AI generator or Blender (flat disc + notch) | ~3 m wide, flat underside |
+| 10 | Moonlit Bomb | AI generator: "round moon-blue bomb with crescent fuse" | ~35 cm |
+| 11 | Cracked wall / cracked lid | Blender or AI ("cracked stone slab with glowing seams") | One wall, one floor slab |
+| 12 | Forest environment | Fab: one free/paid **stylized** forest pack (trees, bushes, grass, rocks, cliffs, wooden planks) | Pick one pack so the style matches |
+| 13 | Crate, stone blocks, boulders | Same Fab pack, or Fab "stylized props" | |
+| 14 | Water | I set up a stylized water material; a Fab stylized water pack is optional | |
+| 15 | Music | Original or properly licensed: 3 area loops (Forest, Sunken, Canopy), puzzle-solved jingle (2-3 s), item-get fanfare (3-4 s), ending piece | OGG/WAV 44.1 kHz |
+| 16 | SFX | Freesound (CC0) / Sonniss GDC bundles | snip (cut), attach chime, return, plate clunk, gate rumble, water splash/swim, bubble pop, stone scrape (push), hook fire / latch / reel, bomb fuse / explosion, rubble, chest open, footsteps (grass/stone/wood), wheel creak, pulley creak, wind |
+
 ## 5. Questions
 
 - The earlier M1 build is gone from this folder. If you have it elsewhere (another PC, a backup), tell me and I'll pick it up instead of rebuilding.

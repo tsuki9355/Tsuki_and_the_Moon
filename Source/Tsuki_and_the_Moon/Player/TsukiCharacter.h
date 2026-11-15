@@ -17,9 +17,28 @@ class UPropertyHolderComponent;
 class AFairyHintVolume;
 class AToolPickup;
 struct FInputActionValue;
+class UStaticMesh;
+class UStaticMeshComponent;
+
+/** How an item looks when Tsuki holds it up (item-get) or in her hand. */
+USTRUCT(BlueprintType)
+struct FTsukiItemDisplay
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item")
+	TObjectPtr<UStaticMesh> Mesh;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item")
+	float Scale = 0.2f;
+
+	/** Extra rotation so the item faces the camera nicely. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item")
+	FRotator Rotation = FRotator::ZeroRotator;
+};
 
 /**
- * Tsuki: third-person movement with responsive, grounded feel (GDD Â§2), the Moon Scissors,
+ * Tsuki: third-person movement with responsive, grounded feel (GDD section 2), the Moon Scissors,
  * push/pull, interact, fairy hint requests and checkpoint respawn.
  * Input assets can be assigned in BP_Tsuki; if left empty, default keyboard/gamepad bindings are built in code.
  */
@@ -52,6 +71,28 @@ public:
 	/** Tsuki's own weight on pressure plates. Not a scissors target. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Tsuki")
 	TObjectPtr<UPropertyHolderComponent> Weight;
+
+	/** Item in her right hand (the Moonthread Hook while aiming / pulling). */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Tsuki|Items")
+	TObjectPtr<UStaticMeshComponent> HandItem;
+
+	/** Item held up over her head during an item-get. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Tsuki|Items")
+	TObjectPtr<UStaticMeshComponent> ItemGetDisplay;
+
+	/** Fixed front close-up used for the item-get moment. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Tsuki|Items")
+	TObjectPtr<UCameraComponent> ItemGetCamera;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tsuki|Items")
+	TMap<ETsukiTool, FTsukiItemDisplay> ToolDisplays;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tsuki|Items")
+	FTsukiItemDisplay MoonFragmentDisplay;
+
+	/** Seconds for the climb out of water. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tsuki|Swim", meta = (ClampMin = "0.1"))
+	float ClimbOutTime = 0.5f;
 
 	// --- Feel tuning ---
 
@@ -101,6 +142,13 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tsuki|Feel", meta = (ClampMin = "0.0"))
 	float ItemGetDuration = 2.f;
 
+	/**
+	 * Throw sync: the fraction of the Throw clip where the arm releases. The clip is sped up so that
+	 * moment lands on the object's release time (Grab ThrowReleaseTime / Bomb ThrowReleaseDelay).
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tsuki|Feel", meta = (ClampMin = "0.05", ClampMax = "1.0"))
+	float ThrowClipReleaseFraction = 0.45f;
+
 	// --- Input (optional asset overrides) ---
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input")
@@ -142,7 +190,7 @@ public:
 
 	/** Tool pickup moment: brief input lock and a Blueprint hook for pose, jingle and camera. */
 	UFUNCTION(BlueprintCallable, Category = "Tsuki")
-	void PlayItemGet(ETsukiTool Tool);
+	void PlayItemGet(ETsukiTool Tool, bool bMoonFragment = false);
 
 	/** Nearest tool pickup in reach, for the prompt. */
 	UFUNCTION(BlueprintPure, Category = "Tsuki")
@@ -177,6 +225,7 @@ private:
 	void ReturnProperty();
 	void RequestHint();
 	void Recenter();
+	class UTsukiAnimInstance* GetTsukiAnim() const;
 	void FireHook();
 	void ReleaseHook();
 	void UpdateAimCamera(float DeltaSeconds);
@@ -199,6 +248,15 @@ private:
 	float WaterSurfaceZ = 0.f;
 	float LastWaterTime = -100.f;
 	bool bSwimming = false;
+
+	void TickClimbOut(float DeltaSeconds);
+	void TickItems(float DeltaSeconds);
+	FVector GetHandsMid() const;
+
+	FVector ClimbFrom = FVector::ZeroVector;
+	FVector ClimbTo = FVector::ZeroVector;
+	float ClimbAlpha = -1.f; // < 0 when not climbing.
+	bool bInItemGet = false;
 
 	mutable TArray<AActor*> PickupOverlapCache;
 	TWeakObjectPtr<AFairyHintVolume> ActiveHintVolume;

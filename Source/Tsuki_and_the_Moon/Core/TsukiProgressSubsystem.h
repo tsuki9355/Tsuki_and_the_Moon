@@ -11,14 +11,28 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnPuzzleSolved, FName, PuzzleId);
 
 /**
  * Slice progress: obtained tools, Moon Fragments, solved puzzles and the active checkpoint.
- * Saved to disk at checkpoints in M4 (UTsukiSaveGame).
+ * Written to the "Tsuki" save slot whenever it changes (checkpoints, pickups, solved puzzles) and
+ * loaded when the game starts. In the editor (PIE) loading is off unless bLoadSaveInEditor is set,
+ * so test runs start fresh.
  */
-UCLASS()
+UCLASS(Config = Game)
 class TSUKI_AND_THE_MOON_API UTsukiProgressSubsystem : public UGameInstanceSubsystem
 {
 	GENERATED_BODY()
 
 public:
+	virtual void Initialize(FSubsystemCollectionBase& Collection) override;
+
+	/** Load the save in Play-In-Editor too (off by default so PIE starts fresh). */
+	UPROPERTY(Config)
+	bool bLoadSaveInEditor = false;
+
+	/** Erase the save and reset progress (used by "New Game"). */
+	UFUNCTION(BlueprintCallable, Category = "Progress")
+	void ResetProgress();
+
+	UFUNCTION(BlueprintPure, Category = "Progress")
+	bool HasLoadedSave() const { return bLoadedFromSave; }
 	UFUNCTION(BlueprintPure, Category = "Progress")
 	bool HasTool(ETsukiTool Tool) const { return Tools.Contains(Tool); }
 
@@ -62,7 +76,11 @@ private:
 	UPROPERTY()
 	TSet<FName> SolvedPuzzles;
 
+	void Save() const;
+	void Load();
+
 	int32 MoonFragments = 0;
 	FTransform RespawnTransform;
 	bool bHasRespawn = false;
+	bool bLoadedFromSave = false;
 };

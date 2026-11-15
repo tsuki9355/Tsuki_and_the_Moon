@@ -28,6 +28,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bomb")
 	float TossUp = 320.f;
 
+	/** Seconds into the throw animation when the bomb leaves her hands. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bomb")
+	float ThrowReleaseDelay = 0.22f;
+
 	UFUNCTION(BlueprintCallable, Category = "Bomb")
 	void SetBombsEnabled(bool bEnabled) { bBombsEnabled = bEnabled; }
 

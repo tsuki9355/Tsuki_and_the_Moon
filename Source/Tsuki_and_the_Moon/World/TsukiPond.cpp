@@ -77,7 +77,7 @@ void ATsukiPond::Tick(float DeltaSeconds)
 
 		UPropertyHolderComponent* Holder = Actor ? Actor->FindComponentByClass<UPropertyHolderComponent>() : nullptr;
 		UPrimitiveComponent* Root = Actor ? Cast<UPrimitiveComponent>(Actor->GetRootComponent()) : nullptr;
-		if (!Holder || !Root || Root->Mobility != EComponentMobility::Movable || Root->GetAttachParent())
+		if (!Holder || !Root || Root->Mobility != EComponentMobility::Movable || Root->GetAttachParent() || Holder->bHeldByPlayer)
 		{
 			continue; // Static scenery, or an object Tsuki is carrying.
 		}
