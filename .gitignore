@@ -88,3 +88,17 @@ Content/Developers/
 # Raw source art (FBX/PNG exports); only imported Unreal assets are committed
 Tsuki_and_the_Moon_assets/
 
+# Game Animation Sample content migrated in for retargeting only (not redistributed)
+Content/Audio/
+Content/Blueprints/
+Content/Characters/Echo/
+Content/Characters/Paragon/
+Content/Characters/UE4_Mannequin/
+Content/Characters/UE5_Mannequins/
+Content/Characters/UEFN_Mannequin/
+Content/Levels/
+Content/MetaHumans/
+Content/Misc/
+Content/Tsuki/M_Neutral_*.uasset
+Content/Tsuki/LookAtPOI_*.uasset
+
