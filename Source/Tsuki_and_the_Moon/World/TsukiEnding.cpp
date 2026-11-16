@@ -1,6 +1,8 @@
 #include "World/TsukiEnding.h"
 #include "Player/TsukiCharacter.h"
 #include "UI/TsukiHUD.h"
+#include "Core/TsukiGameMode.h"
+#include "Engine/World.h"
 #include "Components/BoxComponent.h"
 #include "Camera/CameraComponent.h"
 #include "GameFramework/PlayerController.h"
@@ -36,6 +38,10 @@ void ATsukiEnding::HandleOverlap(UPrimitiveComponent*, AActor* OtherActor, UPrim
 	}
 	Tsuki->GetCharacterMovement()->StopMovementImmediately();
 	Tsuki->GetCharacterMovement()->DisableMovement();
+	if (ATsukiGameMode* GM = GetWorld()->GetAuthGameMode<ATsukiGameMode>())
+	{
+		GM->StopMusic(EndingMusic ? 1.f : 3.f);
+	}
 	if (EndingMusic)
 	{
 		UGameplayStatics::PlaySound2D(this, EndingMusic);

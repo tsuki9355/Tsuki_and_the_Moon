@@ -31,6 +31,14 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Progress")
 	void ResetProgress();
 
+	/** Load the save slot into progress (title screen Continue). Returns false if there is no save. */
+	UFUNCTION(BlueprintCallable, Category = "Progress")
+	bool LoadProgress();
+
+	/** True if the save slot exists on disk. Usage: Continue is offered only when this is true. */
+	UFUNCTION(BlueprintPure, Category = "Progress")
+	static bool DoesSaveExist();
+
 	UFUNCTION(BlueprintPure, Category = "Progress")
 	bool HasLoadedSave() const { return bLoadedFromSave; }
 	UFUNCTION(BlueprintPure, Category = "Progress")

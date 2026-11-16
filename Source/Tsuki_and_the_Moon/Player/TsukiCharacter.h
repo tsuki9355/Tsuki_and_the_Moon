@@ -142,6 +142,14 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tsuki|Feel", meta = (ClampMin = "0.0"))
 	float ItemGetDuration = 2.f;
 
+	/** Jingle for the item-get moment (new tool or Moon Fragment). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tsuki|Audio")
+	TObjectPtr<USoundBase> ItemGetSound;
+
+	/** Seconds after the item-get starts before the jingle plays (lets a chest's opening sound finish first). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tsuki|Audio", meta = (ClampMin = "0.0"))
+	float ItemGetSoundDelay = 0.5f;
+
 	/**
 	 * Throw sync: the fraction of the Throw clip where the arm releases. The clip is sped up so that
 	 * moment lands on the object's release time (Grab ThrowReleaseTime / Bomb ThrowReleaseDelay).

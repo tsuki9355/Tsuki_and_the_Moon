@@ -24,6 +24,8 @@
 #include "Engine/LocalPlayer.h"
 #include "Engine/World.h"
 #include "TimerManager.h"
+#include "Kismet/GameplayStatics.h"
+#include "Sound/SoundBase.h"
 
 ATsukiCharacter::ATsukiCharacter()
 {
@@ -402,6 +404,25 @@ void ATsukiCharacter::PlayItemGet(ETsukiTool Tool, bool bMoonFragment)
 	GetCharacterMovement()->StopMovementImmediately();
 	bInputLocked = true;
 	bInItemGet = true;
+	if (ItemGetSound)
+	{
+		if (ItemGetSoundDelay <= 0.f)
+		{
+			UGameplayStatics::PlaySound2D(this, ItemGetSound);
+		}
+		else
+		{
+			TWeakObjectPtr<ATsukiCharacter> WeakThis(this);
+			FTimerHandle Handle;
+			GetWorldTimerManager().SetTimer(Handle, [WeakThis]()
+			{
+				if (WeakThis.IsValid() && WeakThis->ItemGetSound)
+				{
+					UGameplayStatics::PlaySound2D(WeakThis.Get(), WeakThis->ItemGetSound);
+				}
+			}, ItemGetSoundDelay, false);
+		}
+	}
 
 	// Ocarina-style item get: cut to a fixed front close-up, hold the item up over her head.
 	const FTsukiItemDisplay* Display = bMoonFragment ? &MoonFragmentDisplay : ToolDisplays.Find(Tool);

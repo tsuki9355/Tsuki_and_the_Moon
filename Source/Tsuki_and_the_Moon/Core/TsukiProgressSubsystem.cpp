@@ -46,6 +46,17 @@ void UTsukiProgressSubsystem::Load()
 	bLoadedFromSave = true;
 }
 
+bool UTsukiProgressSubsystem::LoadProgress()
+{
+	Load();
+	return bLoadedFromSave;
+}
+
+bool UTsukiProgressSubsystem::DoesSaveExist()
+{
+	return UGameplayStatics::DoesSaveGameExist(SlotName, UserIndex);
+}
+
 void UTsukiProgressSubsystem::Save() const
 {
 	UTsukiSaveGame* Data = Cast<UTsukiSaveGame>(UGameplayStatics::CreateSaveGameObject(UTsukiSaveGame::StaticClass()));

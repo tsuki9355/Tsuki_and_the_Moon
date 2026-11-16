@@ -31,6 +31,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Scissors", meta = (ClampMin = "0.0"))
 	float TraceRadius = 35.f;
 
+	/** Snip played on every cut and attach, unless the property has its own sound in Project Settings. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Scissors|Audio")
+	TObjectPtr<USoundBase> SnipSound;
+
 	UFUNCTION(BlueprintCallable, Category = "Scissors")
 	bool UseScissors();
 

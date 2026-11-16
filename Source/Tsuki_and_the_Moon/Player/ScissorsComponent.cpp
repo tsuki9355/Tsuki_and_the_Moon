@@ -190,7 +190,12 @@ void UScissorsComponent::SetCarried(EMoonProperty NewCarried, UPropertyHolderCom
 void UScissorsComponent::PlayPropertySound(EMoonProperty Property, bool bCut) const
 {
 	const FMoonPropertyInfo& Info = UTsukiPropertySettings::Get()->GetInfo(Property);
-	if (USoundBase* Sound = (bCut ? Info.CutSound : Info.AttachSound).LoadSynchronous())
+	USoundBase* Sound = (bCut ? Info.CutSound : Info.AttachSound).LoadSynchronous();
+	if (!Sound)
+	{
+		Sound = SnipSound;
+	}
+	if (Sound)
 	{
 		UGameplayStatics::PlaySound2D(this, Sound);
 	}

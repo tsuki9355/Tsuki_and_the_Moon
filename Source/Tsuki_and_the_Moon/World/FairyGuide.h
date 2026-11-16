@@ -34,6 +34,35 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Fairy")
 	TObjectPtr<UPointLightComponent> Glow;
 
+	/** Bobs and turns to face where the fairy flies; carries the core and the wings. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Fairy|Look")
+	TObjectPtr<USceneComponent> Sprite;
+
+	/** Two pairs of slender wings (upper and lower) that flutter. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Fairy|Look")
+	TObjectPtr<UStaticMeshComponent> WingUpperL;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Fairy|Look")
+	TObjectPtr<UStaticMeshComponent> WingUpperR;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Fairy|Look")
+	TObjectPtr<UStaticMeshComponent> WingLowerL;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Fairy|Look")
+	TObjectPtr<UStaticMeshComponent> WingLowerR;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Fairy|Look")
+	TObjectPtr<UMaterialInterface> CoreMaterial;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Fairy|Look")
+	TObjectPtr<UMaterialInterface> WingMaterial;
+
+	/** Wing beats per second and how far each beat swings (degrees). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Fairy|Look", meta = (ClampMin = "0.0"))
+	float FlapRate = 9.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Fairy|Look", meta = (ClampMin = "0.0"))
+	float FlapAngle = 32.f;
+
+	virtual void OnConstruction(const FTransform& Transform) override;
+
 	/** Opening wake-up shot (e.g. looking down through the canopy opening). */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Fairy")
 	TObjectPtr<UCameraComponent> OpeningCamera;
@@ -76,6 +105,10 @@ private:
 	void ShowNextGreeting();
 	FVector ComputeDesiredLocation(const APawn* Tsuki) const;
 
+	UStaticMeshComponent* MakeWing(const TCHAR* Name);
+	void PoseWings(float Flap);
+
+	float FacingYaw = 0.f;
 	int32 NextGreeting = 0;
 	float PathProgress = 0.f;
 	FTimerHandle OpeningTimer;
