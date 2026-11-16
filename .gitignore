@@ -102,3 +102,6 @@ Content/Misc/
 Content/Tsuki/M_Neutral_*.uasset
 Content/Tsuki/LookAtPOI_*.uasset
 
+
+# Packaged builds and jam zips
+/Game/
